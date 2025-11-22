@@ -76,10 +76,8 @@ async function handleLogout() {
 
 /**
  * Carrega todos os perfis da tabela 'profiles'.
- * Se houver erro 500, a política RLS está falhando.
  */
 async function loadProfiles() {
-    // Requisição correta
     const { data: profiles, error } = await supabaseClient
         .from('profiles')
         .select('id, full_name, email'); 
@@ -89,6 +87,24 @@ async function loadProfiles() {
     }
     return profiles;
 }
+
+/**
+ * Carrega todos os agendamentos da tabela 'appointments'.
+ * Supondo que você precisa de id, data, descrição e o id do usuário.
+ */
+async function loadAppointments() {
+    // Busca os agendamentos e o nome do perfil relacionado (JOIN implícito)
+    const { data: appointments, error } = await supabaseClient
+        .from('appointments')
+        // Seleciona todos os campos de appointments (*) e o full_name do perfil (join)
+        .select('*, profiles(full_name, email)');
+
+    if (error) {
+        throw error;
+    }
+    return appointments;
+}
+
 
 // Funções de renderização da UI (esboços)
 function renderLogin() {
@@ -148,49 +164,93 @@ async function renderAdminContent() {
 
     if (currentAdminTab === 'profiles') {
         try {
-            // Exibe um estado de carregamento enquanto espera o resultado
+            // Exibe um estado de carregamento
             mainContent.innerHTML = `<div class="p-10 text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto"></div><p class="mt-4 text-gray-600">Carregando Perfis...</p></div>`;
 
-            // 1. Carrega os perfis (aqui ocorre o erro 500)
             const profiles = await loadProfiles(); 
 
-            // 2. Renderiza o conteúdo (Se o erro 500 for resolvido, esta seção é executada)
+            // Renderiza a lista de perfis
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Perfis de Usuários (${profiles.length})</h2>
+                    <p class="text-sm text-gray-500 mb-4">RLS para 'profiles' está OK! (Select: authenticated, true)</p>
                     ${profiles.length > 0 
                         ? `<ul class="space-y-3">
                             ${profiles.map(p => 
                                 `<li class="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                    ${p.full_name || 'Nome Indefinido'} (${p.email}) - ID: ${p.id}
+                                    <span class="font-semibold">${p.full_name || 'Nome Indefinido'}</span> (${p.email}) - ID: ${p.id}
                                 </li>`).join('')}
                         </ul>`
-                        : `<p class="text-red-500">Nenhum perfil encontrado. Verifique as políticas RLS para 'select'.</p>`
+                        : `<p class="text-red-500">Nenhum perfil encontrado.</p>`
                     }
                 </div>
             `;
 
         } catch (error) {
-            // Captura do Erro 500
+            // Captura do Erro 500 para 'profiles' (caso volte a ocorrer)
             console.error("Erro ao carregar perfis:", error);
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Perfis (Erro 500 - RLS)</p>
-                    <p class="text-sm text-red-600 mb-4">
-                        O erro 500 indica que a **Política RLS** na tabela <code>profiles</code> falhou no servidor. Por favor, vá ao painel Supabase, **exclua todas** as políticas de <code>SELECT</code> para a tabela <code>profiles</code> e crie apenas uma: 
-                        <br><br>
-                        **Role:** <code>authenticated</code>, **Using:** <code>true</code>.
+                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Perfis (Verifique RLS de 'profiles')</p>
+                    <p class="text-sm text-red-600">Erro: ${error.message}</p>
+                </div>
+            `;
+        }
+    } else if (currentAdminTab === 'appointments') {
+        try {
+            // Exibe um estado de carregamento
+            mainContent.innerHTML = `<div class="p-10 text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto"></div><p class="mt-4 text-gray-600">Carregando Agendamentos...</p></div>`;
+
+            const appointments = await loadAppointments();
+            
+            // Renderiza a lista de agendamentos
+            mainContent.innerHTML = `
+                <div class="p-6 bg-white shadow-lg rounded-xl">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
+                    <p class="text-sm text-gray-500 mb-4">Lembre-se de configurar o RLS para 'appointments' (Select: authenticated, true).</p>
+
+                    ${appointments.length > 0 
+                        ? `<ul class="space-y-4">
+                            ${appointments.map(a => {
+                                // Assume que o campo 'date' existe e o join com 'profiles' funcionou
+                                const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
+                                const userName = a.profiles?.full_name || 'Usuário Desconhecido';
+                                const userEmail = a.profiles?.email || 'N/A';
+
+                                return `<li class="p-4 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
+                                    <div class="font-semibold text-indigo-700">Agendamento ID: ${a.id}</div>
+                                    <div class="text-sm text-gray-700 mt-1">Data/Hora: <span class="font-medium">${appointmentDate}</span></div>
+                                    <div class="text-sm text-gray-700">Usuário: <span class="font-medium">${userName}</span> (${userEmail})</div>
+                                    <div class="text-xs text-gray-500 mt-2">Descrição/Status: ${a.description || a.status || 'Detalhes não preenchidos'}</div>
+                                </li>`;
+                            }).join('')}
+                        </ul>`
+                        : `<p class="text-red-500">Nenhum agendamento encontrado.</p>`
+                    }
+                </div>
+            `;
+
+        } catch (error) {
+            // Captura do Erro 500 para 'appointments' (se o RLS estiver errado)
+            console.error("Erro ao carregar agendamentos:", error);
+            
+            mainContent.innerHTML = `
+                <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
+                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Agendamentos (Verifique RLS de 'appointments')</p>
+                    <p class="text-sm text-red-600">
+                        O erro 500/400 indica que a **Política RLS** na tabela <code>appointments</code> está falhando.
+                        <br>
+                        Vá para o painel Supabase e crie a política: **Role:** <code>authenticated</code>, **Using:** <code>true</code>.
+                        <br>
+                        Detalhe do Erro: ${error.message}
                     </p>
-                    <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150">
+                    <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150 mt-3">
                         Tentar Novamente
                     </button>
                 </div>
             `;
         }
-    } else if (currentAdminTab === 'appointments') {
-        // Implementação futura para agendamentos
-        mainContent.innerHTML = `<div class="p-10 text-center text-gray-600">Conteúdo de Agendamentos (Ainda não implementado).</div>`;
     }
 }
 
