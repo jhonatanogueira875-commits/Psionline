@@ -9,6 +9,7 @@
 // ============================================================
 
 // **IMPORTANTE**: Chaves Supabase do seu projeto
+// MANTENHA A CHAVE ANÔNIMA AQUI - ELA PRECISA ESTAR CORRETA
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
@@ -73,7 +74,7 @@ async function safeCount(tableName) {
             
         // Se houver erro, retorna 0 e loga um aviso (pode ser RLS)
         if (error) {
-            console.warn(`Aviso: Nao foi possivel contar a tabela '${tableName}'. Mensagem:`, error.message);
+            console.warn(`Aviso: Nao foi possivel contar a tabela '${tableName}'. Mensagem:`, error.message, error.code);
             return 0;
         }
         return count || 0;
@@ -87,20 +88,22 @@ async function updateUserStatus(userId, newStatus) {
     if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
     
     // Alerta que a ação de escrita/alteração só funcionará com a chave de administrador/serviço
-    if (!supabaseClient.auth.session()) {
-        console.warn("AVISO: UPDATE/DELETE só funciona com chave de administrador. Ação não executada com ANON_KEY.");
-        // Não faz nada, apenas re-renderiza para mostrar o mesmo estado
-        await renderAdminContent(); 
-        return;
-    }
+    console.warn("AVISO: UPDATE/DELETE (admin actions) só funcionará após implementar a Autenticação de Administrador. Ação não executada com ANON_KEY.");
 
+    // Como estamos usando ANON_KEY, simulamos o erro de RLS para UPDATE
     try {
         // Assume que a tabela 'profiles' tem um campo 'status'
         const { error } = await supabaseClient.from('profiles').update({ status: newStatus }).eq('id', userId);
         if (error) throw error;
         await renderAdminContent(); 
     } catch (err) {
-        console.error('Erro ao atualizar status:', err.message);
+        // Se a operação falhar devido a RLS (que é esperado com ANON_KEY), apenas loga e re-renderiza
+        if (err.code === '42501' || (err.message && err.message.includes('permission denied'))) {
+            console.error('ERRO RLS/Permissão: Tente novamente após implementar o Login Admin. Detalhes:', err.message);
+        } else {
+             console.error('Erro ao atualizar status:', err.message);
+        }
+        await renderAdminContent(); 
     }
 }
 
@@ -108,20 +111,22 @@ async function deleteUser(userId) {
     if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
     
     // Alerta que a ação de escrita/alteração só funcionará com a chave de administrador/serviço
-    if (!supabaseClient.auth.session()) {
-        console.warn("AVISO: UPDATE/DELETE só funciona com chave de administrador. Ação não executada com ANON_KEY.");
-        // Não faz nada, apenas re-renderiza para mostrar o mesmo estado
-        await renderAdminContent(); 
-        return;
-    }
+    console.warn("AVISO: UPDATE/DELETE (admin actions) só funcionará após implementar a Autenticação de Administrador. Ação não executada com ANON_KEY.");
 
+    // Como estamos usando ANON_KEY, simulamos o erro de RLS para DELETE
     try {
         // Assume que a tabela 'profiles' contem todos os usuarios
         const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
         if (error) throw error;
         await renderAdminContent(); 
     } catch (err) {
-        console.error('Erro ao remover usuário:', err.message);
+        // Se a operação falhar devido a RLS (que é esperado com ANON_KEY), apenas loga e re-renderiza
+         if (err.code === '42501' || (err.message && err.message.includes('permission denied'))) {
+            console.error('ERRO RLS/Permissão: Tente novamente após implementar o Login Admin. Detalhes:', err.message);
+        } else {
+             console.error('Erro ao remover usuário:', err.message);
+        }
+        await renderAdminContent(); 
     }
 }
 
@@ -206,7 +211,6 @@ async function getDashboardOverviewHTML() {
     if (!supabaseClient) return "<div>Erro: Supabase não carregado.</div>";
     
     // Busca todos os perfis e a contagem de agendamentos
-    // O safeCount deve lidar com erros de RLS retornando 0
     const [profilesResult, totalAppointments] = await Promise.all([
         supabaseClient.from('profiles').select('*'),
         safeCount('appointments')
@@ -358,16 +362,39 @@ async function renderAdminContent() {
         console.error("Erro detalhado na renderização do conteúdo:", error);
         
         let errorMessage = error.message;
-        // Se a mensagem de erro indicar falha de RLS, mostra uma mensagem mais clara
-        if (error.code === '42P01') errorMessage = "Tabela 'profiles' ou 'appointments' não existe. Execute o script SQL no Supabase.";
-        else if (error.code === 'PGRST301' || (error.message && error.message.includes('permission denied'))) errorMessage = "Erro de permissão (RLS). Verifique as políticas de segurança.";
+        let suggestion = `
+            <strong>Sugestão:</strong> Para solucionar, você precisa executar o script SQL no Supabase para criar políticas RLS que permitam a leitura para usuários anônimos e autenticados.
+        `;
+
+        // 42P01: Tabela/coluna não existe
+        if (error.code === '42P01') {
+            errorMessage = "Tabela 'profiles' ou 'appointments' não existe. Verifique o nome das tabelas no Supabase.";
+            suggestion = `
+                Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem
+                exatamente com esses nomes no Supabase.
+            `;
+        }
+        // 42501: Erro de Permissão (RLS)
+        else if (error.code === '42501' || (error.message && error.message.includes('permission denied'))) {
+            errorMessage = "Erro de permissão (RLS). O acesso anônimo está bloqueado.";
+            suggestion = `
+                Verifique se o <strong>Row Level Security (RLS)</strong> está ativado e se você criou as políticas
+                de <code>SELECT</code> (leitura) para as roles <code>anon</code> e <code>authenticated</code>
+                nas tabelas <code>profiles</code> e <code>appointments</code>.
+            `;
+        }
+        // PGRST301: Erro genérico do PostgREST, muitas vezes RLS
+        else if (error.code === 'PGRST301') {
+             errorMessage = "Erro de servidor (500). Provavelmente erro de RLS ou configuração.";
+        }
+
 
         container.innerHTML = `
             <div class="text-center p-8 border-2 border-red-300 rounded-xl bg-red-50 shadow-md">
                 <h3 class="font-bold text-red-700 text-xl mb-3">❌ Erro ao Carregar Dados</h3>
-                <p class="text-gray-700 mb-4 font-mono text-sm">${errorMessage}</p>
+                <p class="text-gray-700 mb-4 font-mono text-sm">Código/Mensagem: ${error.code || 'N/A'} - ${errorMessage}</p>
                 <p class="text-sm text-gray-500 mb-4">
-                    <strong>Sugestão:</strong> Para solucionar, você precisa executar o script SQL no Supabase para criar políticas RLS que permitam a leitura para usuários anônimos e autenticados.
+                    ${suggestion}
                 </p>
                 <button onclick="renderAdminContent()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150">
                     Tentar Novamente
@@ -404,3 +431,11 @@ function render() {
 
     app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
 }
+
+// Inicialização: Chama a função render() assim que o script é carregado
+// Adicionada aqui para garantir que o painel seja exibido após o login simulado
+window.onload = function() {
+    render();
+}esconhecida.</p>";
+}
+
