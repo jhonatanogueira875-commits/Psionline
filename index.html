@@ -31,15 +31,18 @@
         </div>
     </div>
 
-    <!-- Script Unificado com toda a lógica -->
-    <script src="app.js" defer></script>
+    <!-- Script Unificado com toda a lógica (APENAS app.js) -->
+    <!-- REMOVIDO 'defer' para garantir a ordem de execução SÍNCRONA antes do script inline -->
+    <script src="app.js"></script> 
     
     <script>
+        // O código agora deve ser executado APÓS a execução síncrona de app.js
         document.addEventListener('DOMContentLoaded', () => {
             // Verifica se a função 'render' existe, que é definida no app.js.
             if (typeof render === 'function') {
                 console.log("SUCESSO: app.js carregado e função render() encontrada. Iniciando renderização...");
-                render();
+                // Aqui chamamos o render se o script app.js carregou.
+                render(); 
             } else {
                 console.error("ERRO CRÍTICO: app.js não carregado. Verifique a aba 'Network' (Rede) e o Console.");
                 
@@ -49,8 +52,12 @@
                         <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
                             <p class="font-bold text-xl mb-3">🚨 Falha Crítica na Inicialização 🚨</p>
                             <p class="text-base mb-4">
-                                O arquivo <code>app.js</code> não foi carregado corretamente. Verifique se o nome do arquivo no 
-                                seu repositório é <strong>exatamente</strong> <code>app.js</code>.
+                                O arquivo <code>app.js</code> não foi carregado corretamente. Isso pode ser um problema de 
+                                **letras maiúsculas/minúsculas** ou um **erro de sintaxe**.
+                            </p>
+                            <p class="text-sm text-red-600 font-mono">
+                                **VERIFIQUE:** O nome do arquivo no seu repositório deve ser <strong>exatamente</strong> 
+                                <code>app.js</code> (minúsculas).
                             </p>
                         </div>
                     </div>
@@ -60,6 +67,3 @@
     </script>
 </body>
 </html>
-
-</html>
-
