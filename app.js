@@ -1,7 +1,6 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  Substitui auth.js e database.js.
 */
 
 // ============================================================
@@ -12,11 +11,11 @@
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
-// inicializa o cliente
+// inicializa o cliente (window.supabase vem do CDN no index.html)
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 if (!supabaseClient) {
-    console.error("ERRO: O cliente Supabase não pôde ser inicializado. Verifique a chave ou o link CDN no index.html.");
+    console.error("ERRO: O cliente Supabase não pôde ser inicializado.");
 } else {
     console.log("Supabase inicializado com sucesso.");
 }
@@ -61,9 +60,7 @@ function simulateAdminLogin() {
 // ============================================================
 
 /**
- * Funcao auxiliar para contar linhas, tratando falhas de forma segura (RLS, tabela ausente, etc.).
- * @param {string} tableName - Nome da tabela.
- * @returns {number} O número de linhas, ou 0 em caso de erro.
+ * Funcao auxiliar para contar linhas, tratando falhas de forma segura.
  */
 async function safeCount(tableName) {
     if (!supabaseClient) return 0;
@@ -87,6 +84,7 @@ async function safeCount(tableName) {
 async function updateUserStatus(userId, newStatus) {
     if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
     try {
+        // Assume que a tabela 'profiles' tem um campo 'status'
         const { error } = await supabaseClient.from('profiles').update({ status: newStatus }).eq('id', userId);
         if (error) throw error;
         await renderAdminContent(); 
@@ -98,7 +96,7 @@ async function updateUserStatus(userId, newStatus) {
 async function deleteUser(userId) {
     if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
     try {
-        // Deleta o perfil. (A exclusão do auth.user precisa ser feita com service_role, não aqui)
+        // Assume que a tabela 'profiles' contem todos os usuarios
         const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
         if (error) throw error;
         await renderAdminContent(); 
@@ -185,6 +183,9 @@ function renderAdminShell() {
 // ============================================================
 
 async function getDashboardOverviewHTML() {
+    if (!supabaseClient) return "<div>Erro: Supabase não carregado.</div>";
+    
+    // Busca todos os perfis e a contagem de agendamentos
     const [profilesResult, totalAppointments] = await Promise.all([
         supabaseClient.from('profiles').select('*'),
         safeCount('appointments')
@@ -222,6 +223,8 @@ async function getDashboardOverviewHTML() {
 }
 
 async function getPsychologistsListHTML() {
+    if (!supabaseClient) return "<div>Erro: Supabase não carregado.</div>";
+    
     const { data: psis, error } = await supabaseClient
         .from('profiles').select('*').eq('role', 'psychologist').order('created_at', { ascending: false });
     if (error) throw error;
@@ -261,6 +264,8 @@ async function getPsychologistsListHTML() {
 }
 
 async function getPatientsListHTML() {
+    if (!supabaseClient) return "<div>Erro: Supabase não carregado.</div>";
+
     const { data: patients, error } = await supabaseClient
         .from('profiles').select('*').eq('role', 'patient').order('created_at', { ascending: false });
     if (error) throw error;
@@ -293,12 +298,12 @@ async function getPatientsListHTML() {
 
 /**
  * Função mestre para carregar o conteúdo da aba Admin dinamicamente.
- * Chamada por render().
  */
 async function renderAdminContent() {
     const container = document.getElementById('admin-main-content')?.querySelector('#dynamic-content'); 
     if (!container) return;
 
+    // Exibe o loader
     container.innerHTML = `
         <div class="flex justify-center items-center h-64" id="admin-content-loader">
             <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
@@ -341,7 +346,7 @@ async function renderAdminContent() {
                 <p class="text-gray-700 mb-4 font-mono text-sm">${errorMessage}</p>
                 <p class="text-sm text-gray-500 mb-4">
                     <strong>Sugestão:</strong> Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem e se o RLS
-                    permite a leitura (select) para a role <code>anon</code>.
+                    permite a leitura (select) para a role <code>anon</code> (Anon Key).
                 </p>
                 <button onclick="renderAdminContent()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150">
                     Tentar Novamente
@@ -378,8 +383,3 @@ function render() {
 
     app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
 }
-
-// ============================================================
-// 7. INICIALIZAÇÃO
-// ============================================================
-// A função de inicialização real será chamada no index.html após o DOM ser carregado.
