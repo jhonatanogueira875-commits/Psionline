@@ -1,6 +1,7 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
+  Substitui auth.js e database.js.
 */
 
 // ============================================================
@@ -70,6 +71,7 @@ async function safeCount(tableName) {
             .from(tableName)
             .select('*', { count: 'exact', head: true });
             
+        // Se houver erro, retorna 0 e loga um aviso (pode ser RLS)
         if (error) {
             console.warn(`Aviso: Nao foi possivel contar a tabela '${tableName}'. Mensagem:`, error.message);
             return 0;
@@ -83,6 +85,15 @@ async function safeCount(tableName) {
 
 async function updateUserStatus(userId, newStatus) {
     if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
+    
+    // Alerta que a ação de escrita/alteração só funcionará com a chave de administrador/serviço
+    if (!supabaseClient.auth.session()) {
+        console.warn("AVISO: UPDATE/DELETE só funciona com chave de administrador. Ação não executada com ANON_KEY.");
+        // Não faz nada, apenas re-renderiza para mostrar o mesmo estado
+        await renderAdminContent(); 
+        return;
+    }
+
     try {
         // Assume que a tabela 'profiles' tem um campo 'status'
         const { error } = await supabaseClient.from('profiles').update({ status: newStatus }).eq('id', userId);
@@ -95,6 +106,15 @@ async function updateUserStatus(userId, newStatus) {
 
 async function deleteUser(userId) {
     if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
+    
+    // Alerta que a ação de escrita/alteração só funcionará com a chave de administrador/serviço
+    if (!supabaseClient.auth.session()) {
+        console.warn("AVISO: UPDATE/DELETE só funciona com chave de administrador. Ação não executada com ANON_KEY.");
+        // Não faz nada, apenas re-renderiza para mostrar o mesmo estado
+        await renderAdminContent(); 
+        return;
+    }
+
     try {
         // Assume que a tabela 'profiles' contem todos os usuarios
         const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
@@ -186,6 +206,7 @@ async function getDashboardOverviewHTML() {
     if (!supabaseClient) return "<div>Erro: Supabase não carregado.</div>";
     
     // Busca todos os perfis e a contagem de agendamentos
+    // O safeCount deve lidar com erros de RLS retornando 0
     const [profilesResult, totalAppointments] = await Promise.all([
         supabaseClient.from('profiles').select('*'),
         safeCount('appointments')
@@ -337,6 +358,7 @@ async function renderAdminContent() {
         console.error("Erro detalhado na renderização do conteúdo:", error);
         
         let errorMessage = error.message;
+        // Se a mensagem de erro indicar falha de RLS, mostra uma mensagem mais clara
         if (error.code === '42P01') errorMessage = "Tabela 'profiles' ou 'appointments' não existe. Execute o script SQL no Supabase.";
         else if (error.code === 'PGRST301' || (error.message && error.message.includes('permission denied'))) errorMessage = "Erro de permissão (RLS). Verifique as políticas de segurança.";
 
@@ -345,8 +367,7 @@ async function renderAdminContent() {
                 <h3 class="font-bold text-red-700 text-xl mb-3">❌ Erro ao Carregar Dados</h3>
                 <p class="text-gray-700 mb-4 font-mono text-sm">${errorMessage}</p>
                 <p class="text-sm text-gray-500 mb-4">
-                    <strong>Sugestão:</strong> Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem e se o RLS
-                    permite a leitura (select) para a role <code>anon</code> (Anon Key).
+                    <strong>Sugestão:</strong> Para solucionar, você precisa executar o script SQL no Supabase para criar políticas RLS que permitam a leitura para usuários anônimos e autenticados.
                 </p>
                 <button onclick="renderAdminContent()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150">
                     Tentar Novamente
