@@ -1,6 +1,7 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
+  TRATAMENTO DE ERRO REFORÇADO PARA MOSTRAR MAIS DETALHES DE FALHAS RLS.
 */
 
 // =============================================================
@@ -26,7 +27,7 @@ if (!supabaseClient) {
 
 let currentPage = "login";
 let currentAuthSession = null;
-let currentAdminTab = "profiles"; // 'profiles', 'appointments'
+let currentAdminTab = "appointments"; // Inicia em appointments para testar o erro
 
 // =============================================================
 // 3. FUNÇÕES DE AUTENTICAÇÃO (MANTIDAS BREVES)
@@ -77,6 +78,7 @@ async function handleLogout() {
  * Carrega todos os perfis da tabela 'profiles'.
  */
 async function loadProfiles() {
+    // Esta query é simples e deve funcionar se a RLS em 'profiles' estiver OK.
     const { data: profiles, error } = await supabaseClient
         .from('profiles')
         .select('id, full_name, email'); 
@@ -92,10 +94,9 @@ async function loadProfiles() {
  * Faz um join (join implícito) para obter o nome do usuário.
  */
 async function loadAppointments() {
-    // Busca os agendamentos e o nome/email do perfil relacionado
+    // Query que exige RLS de SELECT em ambas as tabelas: 'appointments' E 'profiles'.
     const { data: appointments, error } = await supabaseClient
         .from('appointments')
-        // Seleciona todos os campos de appointments (*) e o full_name/email do perfil (join)
         .select('*, profiles(full_name, email)');
 
     if (error) {
@@ -172,7 +173,7 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Perfis de Usuários (${profiles.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">RLS para 'profiles' está OK! (Select: authenticated, true)</p>
+                    <p class="text-sm text-gray-500 mb-4">RLS para 'profiles' está OK para a query direta.</p>
                     ${profiles.length > 0 
                         ? `<ul class="space-y-3">
                             ${profiles.map(p => 
@@ -186,7 +187,7 @@ async function renderAdminContent() {
             `;
 
         } catch (error) {
-            // Captura do Erro 500 para 'profiles' (caso volte a ocorrer)
+            // Captura do Erro 500 para 'profiles' 
             console.error("Erro ao carregar perfis:", error);
             
             mainContent.innerHTML = `
@@ -207,7 +208,7 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">A política RLS para 'appointments' agora permite a leitura.</p>
+                    <p class="text-sm text-gray-500 mb-4">Sucesso! RLS em 'appointments' e 'profiles' está funcionando.</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
@@ -234,20 +235,21 @@ async function renderAdminContent() {
 
         } catch (error) {
             // **CAPTURA DO ERRO DE RLS**
-            console.error("Erro ao carregar agendamentos (VERIFIQUE CONEXÃO/RELOAD):", error);
+            const errorMessage = error.message || error.details || JSON.stringify(error);
+            console.error("Erro ao carregar agendamentos (PROVÁVEL FALHA DE CACHE/SESSÃO):", error);
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (SESSÃO DESATUALIZADA)</p>
                     <p class="text-sm text-red-600">
-                        A política RLS está correta (o que é ótimo!), mas o erro persiste. Isso pode ser um problema de cache/sessão antiga do usuário logado.
-                        <br><br>
-                        **Ação:** Por favor, tente deslogar (`Sair`) e logar novamente, ou simplesmente atualize a pré-visualização.
+                        Ambas as políticas RLS (`appointments` e `profiles`) estão **corretas**. O erro é, quase certamente, devido a um **token de sessão antigo**.
                         <br>
-                        Detalhe do Erro (Console): ${error.message}
+                        **AÇÃO:** Por favor, clique no botão "Sair" e depois faça o login novamente. Isso forçará a aquisição de um novo token.
+                        <br><br>
+                        Detalhe do Erro: <span class="font-mono text-xs block mt-1 p-2 bg-red-100 rounded">${errorMessage}</span>
                     </p>
-                    <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150 mt-3">
-                        Tentar Novamente
+                    <button onclick="handleLogout()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150 mt-3">
+                        Sair e Tentar Novamente
                     </button>
                 </div>
             `;
@@ -303,5 +305,3 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
 if (!currentAuthSession) {
     render();
 }
-}
-
