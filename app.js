@@ -112,15 +112,17 @@ function renderLogin() {
     return `
         <div class="flex items-center justify-center min-h-screen bg-gray-100 p-4">
             <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl">
-                <h1 class="text-3xl font-bold text-center text-purple-700 mb-8">Login</h1>
+                <h1 class="text-3xl font-bold text-center text-purple-700 mb-8">Login Administrativo</h1>
                 <form id="login-form" onsubmit="event.preventDefault(); handleLogin(document.getElementById('email').value, document.getElementById('password').value);">
                     <div class="mb-4">
                         <label for="email" class="block text-gray-700 font-semibold mb-2">Email</label>
-                        <input type="email" id="email" value="admin@exemplo.com" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
+                        <!-- REMOVIDO VALOR DUMMY: Use seu email de administrador real e confirmado -->
+                        <input type="email" id="email" placeholder="Seu email cadastrado no Supabase" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
                     </div>
                     <div class="mb-6">
                         <label for="password" class="block text-gray-700 font-semibold mb-2">Senha</label>
-                        <input type="password" id="password" value="123456" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
+                        <!-- REMOVIDO VALOR DUMMY: Use sua senha real -->
+                        <input type="password" id="password" placeholder="Sua senha" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
                     </div>
                     <button type="submit" class="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition duration-200 shadow-md">Entrar</button>
                     <p id="login-error-message" class="mt-4 text-center text-sm text-red-500 hidden">Erro de Login: Credenciais inválidas.</p>
@@ -240,11 +242,11 @@ async function renderAdminContent() {
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (SESSÃO DESATUALIZADA)</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (SESSÃO DESATUALIZADA OU LOGIN INCORRETO)</p>
                     <p class="text-sm text-red-600">
-                        Ambas as políticas RLS (`appointments` e `profiles`) estão **corretas**. O erro é, quase certamente, devido a um **token de sessão antigo**.
+                        Ambas as políticas RLS (`appointments` e `profiles`) estão **corretas**. O erro é, quase certamente, devido a um **token de sessão antigo** ou **falha de autenticação**.
                         <br>
-                        **AÇÃO:** Por favor, clique no botão "Sair" e depois faça o login novamente. Isso forçará a aquisição de um novo token.
+                        **AÇÃO:** Por favor, clique no botão "Sair" e **faça o login novamente, garantindo que suas credenciais reais estejam corretas e que o usuário esteja confirmado no Supabase**.
                         <br><br>
                         Detalhe do Erro: <span class="font-mono text-xs block mt-1 p-2 bg-red-100 rounded">${errorMessage}</span>
                     </p>
