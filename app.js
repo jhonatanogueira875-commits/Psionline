@@ -90,13 +90,13 @@ async function loadProfiles() {
 
 /**
  * Carrega todos os agendamentos da tabela 'appointments'.
- * Supondo que você precisa de id, data, descrição e o id do usuário.
+ * Faz um join (join implícito) para obter o nome do usuário.
  */
 async function loadAppointments() {
-    // Busca os agendamentos e o nome do perfil relacionado (JOIN implícito)
+    // Busca os agendamentos e o nome/email do perfil relacionado
     const { data: appointments, error } = await supabaseClient
         .from('appointments')
-        // Seleciona todos os campos de appointments (*) e o full_name do perfil (join)
+        // Seleciona todos os campos de appointments (*) e o full_name/email do perfil (join)
         .select('*, profiles(full_name, email)');
 
     if (error) {
@@ -208,13 +208,15 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">Lembre-se de configurar o RLS para 'appointments' (Select: authenticated, true).</p>
+                    <p class="text-sm text-gray-500 mb-4">Se não houver dados, verifique a política RLS para 'appointments' (Select: authenticated, true).</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
                             ${appointments.map(a => {
                                 // Assume que o campo 'date' existe e o join com 'profiles' funcionou
+                                // Caso o campo 'date' não exista, usa created_at
                                 const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
+                                // Acessa o objeto aninhado 'profiles' para pegar o nome
                                 const userName = a.profiles?.full_name || 'Usuário Desconhecido';
                                 const userEmail = a.profiles?.email || 'N/A';
 
@@ -226,7 +228,7 @@ async function renderAdminContent() {
                                 </li>`;
                             }).join('')}
                         </ul>`
-                        : `<p class="text-red-500">Nenhum agendamento encontrado.</p>`
+                        : `<p class="text-gray-600 font-medium">Nenhum agendamento encontrado no banco de dados.</p>`
                     }
                 </div>
             `;
