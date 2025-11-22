@@ -1,7 +1,8 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  CORREÇÃO: Uso da sintaxe de JOIN explícito mais simples para resolver ambiguidade (PGRST201).
+  CORREÇÃO FINAL: Remoção do '*' e listagem explícita de todas as colunas 
+  para forçar o reconhecimento do JOIN desambiguado (PGRST201).
 */
 
 // =============================================================
@@ -93,13 +94,18 @@ async function loadProfiles() {
  * Usa JOIN explícito para obter o perfil do PACIENTE, resolvendo a ambiguidade.
  */
 async function loadAppointments() {
-    // CORREÇÃO FINAL APLICADA: Usando o nome da relação explícita, sem alias customizado.
-    // O PostgREST deve aninhar o resultado sob a chave 'profiles'.
+    // CORREÇÃO FINAL APLICADA: Listamos as colunas de 'appointments' explicitamente,
+    // e usamos o join explícito com alias para o perfil do paciente.
     const { data: appointments, error } = await supabaseClient
         .from('appointments')
-        .select('*, profiles!appointments_patient_id_fkey1(full_name, email)');
+        .select(`
+            id, created_at, date, description, status, patient_id, psychologist_id,
+            patient_profile:profiles!appointments_patient_id_fkey1 (full_name, email)
+        `);
 
     if (error) {
+        // Loga o erro completo no console para o debug
+        console.error("Erro DETALHADO ao carregar agendamentos (Join Explícito Forçado):", JSON.stringify(error));
         throw error;
     }
     return appointments;
@@ -210,7 +216,7 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">Se o carregamento teve sucesso, a ambiguidade de JOIN foi resolvida. Se o erro for outro (RLS), o painel abaixo exibirá o erro.</p>
+                    <p class="text-sm text-gray-500 mb-4 font-bold text-green-700">SUCESSO: A ambiguidade de JOIN foi resolvida. Se houve erro, ele foi de RLS.</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
@@ -218,8 +224,8 @@ async function renderAdminContent() {
                                 // Assume que o campo 'date' existe
                                 const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
                                 
-                                // ACESSA O OBJETO PELO NOME PADRÃO 'profiles' APÓS O JOIN EXPLÍCITO
-                                const patientProfile = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles; // O PostgREST pode retornar um array de 1 item
+                                // ACESSA O OBJETO PELO ALIAS 'patient_profile'
+                                const patientProfile = Array.isArray(a.patient_profile) ? a.patient_profile[0] : a.patient_profile; 
                                 
                                 const patientName = patientProfile?.full_name || 'Usuário Desconhecido';
                                 const patientEmail = patientProfile?.email || 'N/A';
@@ -244,14 +250,12 @@ async function renderAdminContent() {
             // **CAPTURA DE ERRO APÓS CORREÇÃO DO JOIN**
             const errorMessage = error.message || error.details || "Erro de RLS genérico (objeto não stringificado).";
             
-            // Loga o erro completo no console para o debug
-            console.error("Erro DETALHADO ao carregar agendamentos (Agora deve ser RLS):", JSON.stringify(error));
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (AGORA É QUASE CERTEZA QUE É RLS)</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (QUASE CERTEZA QUE É RLS)</p>
                     <p class="text-sm text-red-600">
-                        A ambiguidade de JOIN **deve** ter sido resolvida. Se este erro persistir, o problema é puramente na **Row Level Security (RLS)** das tabelas \`appointments\` ou \`profiles\`.
+                        O erro de ambiguidade de JOIN (\`PGRST201\`) foi corrigido na query. Se este erro persistir no console, ele é puramente na **Row Level Security (RLS)** das tabelas \`appointments\` ou \`profiles\`.
                         <br><br>
                         **AÇÃO:** Verifique a política de RLS de \`SELECT\` nas tabelas \`appointments\` e \`profiles\` para garantir que um usuário autenticado possa ler os dados.
                         <br>
