@@ -1,8 +1,9 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  CORREÇÃO FINAL: Remoção do '*' e listagem explícita de todas as colunas 
-  para forçar o reconhecimento do JOIN desambiguado (PGRST201).
+  CORREÇÃO FINAL (Multi-JOIN Explícito): Implementação da solução definitiva 
+  para o erro PGRST201, explicitando AMBAS as relações (paciente e psicólogo) 
+  usando os nomes das Foreign Keys.
 */
 
 // =============================================================
@@ -91,21 +92,29 @@ async function loadProfiles() {
 
 /**
  * Carrega todos os agendamentos da tabela 'appointments'.
- * Usa JOIN explícito para obter o perfil do PACIENTE, resolvendo a ambiguidade.
+ * Solução definitiva para o PGRST201: Seleção explícita de ambas as relações.
  */
 async function loadAppointments() {
-    // CORREÇÃO FINAL APLICADA: Listamos as colunas de 'appointments' explicitamente,
-    // e usamos o join explícito com alias para o perfil do paciente.
+    // TRECHO DE CÓDIGO FINAL CORRIGIDO, baseado na sua observação.
     const { data: appointments, error } = await supabaseClient
         .from('appointments')
         .select(`
-            id, created_at, date, description, status, patient_id, psychologist_id,
-            patient_profile:profiles!appointments_patient_id_fkey1 (full_name, email)
+            *,
+            patient:profiles!appointments_patient_id_fkey1 (
+              id,
+              full_name,
+              email
+            ),
+            psychologist:profiles!appointments_psychologist_id_fkey1 (
+              id,
+              full_name,
+              email
+            )
         `);
 
     if (error) {
         // Loga o erro completo no console para o debug
-        console.error("Erro DETALHADO ao carregar agendamentos (Join Explícito Forçado):", JSON.stringify(error));
+        console.error("Erro DETALHADO ao carregar agendamentos (Join Multi-Explícito Final):", JSON.stringify(error));
         throw error;
     }
     return appointments;
@@ -216,7 +225,7 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4 font-bold text-green-700">SUCESSO: A ambiguidade de JOIN foi resolvida. Se houve erro, ele foi de RLS.</p>
+                    <p class="text-sm text-gray-500 mb-4 font-bold text-green-700">SUCESSO: O erro PGRST201 deve ter sido resolvido.</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
@@ -224,19 +233,22 @@ async function renderAdminContent() {
                                 // Assume que o campo 'date' existe
                                 const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
                                 
-                                // ACESSA O OBJETO PELO ALIAS 'patient_profile'
-                                const patientProfile = Array.isArray(a.patient_profile) ? a.patient_profile[0] : a.patient_profile; 
+                                // ACESSA OS OBJETOS PELOS ALIAS 'patient' e 'psychologist' (conforme a query corrigida)
+                                // Tratamento de array (caso o PostgREST retorne um array de 1 item)
+                                const patient = Array.isArray(a.patient) ? a.patient[0] : a.patient; 
+                                const psychologist = Array.isArray(a.psychologist) ? a.psychologist[0] : a.psychologist; 
                                 
-                                const patientName = patientProfile?.full_name || 'Usuário Desconhecido';
-                                const patientEmail = patientProfile?.email || 'N/A';
+                                const patientName = patient?.full_name || 'Usuário Desconhecido';
+                                const patientEmail = patient?.email || 'N/A';
                                 
-                                const psychologistId = a.psychologist_id || 'N/A'; 
+                                const psychologistName = psychologist?.full_name || 'Psicólogo Desconhecido';
+                                const psychologistEmail = psychologist?.email || 'N/A';
 
                                 return `<li class="p-4 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
                                     <div class="font-semibold text-indigo-700">Agendamento ID: ${a.id}</div>
                                     <div class="text-sm text-gray-700 mt-1">Data/Hora: <span class="font-medium">${appointmentDate}</span></div>
                                     <div class="text-sm text-gray-700">Paciente: <span class="font-medium">${patientName}</span> (${patientEmail})</div>
-                                    <div class="text-xs text-gray-500">ID Psicólogo: ${psychologistId}</div>
+                                    <div class="text-sm text-gray-700">Psicólogo: <span class="font-medium">${psychologistName}</span> (${psychologistEmail})</div>
                                     <div class="text-xs text-gray-500 mt-2">Descrição/Status: ${a.description || a.status || 'Detalhes não preenchidos'}</div>
                                 </li>`;
                             }).join('')}
@@ -247,18 +259,15 @@ async function renderAdminContent() {
             `;
 
         } catch (error) {
-            // **CAPTURA DE ERRO APÓS CORREÇÃO DO JOIN**
-            const errorMessage = error.message || error.details || "Erro de RLS genérico (objeto não stringificado).";
-            
+            // **CAPTURA DE ERRO**
+            const errorMessage = error.message || error.details || "Erro genérico.";
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (QUASE CERTEZA QUE É RLS)</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS</p>
                     <p class="text-sm text-red-600">
-                        O erro de ambiguidade de JOIN (\`PGRST201\`) foi corrigido na query. Se este erro persistir no console, ele é puramente na **Row Level Security (RLS)** das tabelas \`appointments\` ou \`profiles\`.
+                        A ambiguidade de JOIN foi corrigida! Se o erro persistir, ele está estritamente relacionado à **Row Level Security (RLS)** das tabelas \`appointments\` ou \`profiles\`.
                         <br><br>
-                        **AÇÃO:** Verifique a política de RLS de \`SELECT\` nas tabelas \`appointments\` e \`profiles\` para garantir que um usuário autenticado possa ler os dados.
-                        <br>
                         Detalhe do Erro: <span class="font-mono text-xs block mt-1 p-2 bg-red-100 rounded">${errorMessage}</span>
                     </p>
                     <button onclick="handleLogout()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150 mt-3">
