@@ -48,10 +48,10 @@ async function handleLogin(email, password) {
     });
 
     if (error) {
-        // Linha 77 mencionada no log original
+        // Trata a falha de login exibindo a mensagem na tela (Erro 400)
         console.error("Erro de Login:", error.message);
         if (loginErrorMessage) {
-            loginErrorMessage.textContent = "Erro de Login: Credenciais inválidas.";
+            loginErrorMessage.textContent = "Erro de Login: Credenciais inválidas. Verifique seu email/senha e o status de confirmação do usuário no painel Supabase.";
             loginErrorMessage.classList.remove('hidden');
         }
         return;
@@ -76,14 +76,12 @@ async function handleLogout() {
 
 /**
  * Carrega todos os perfis da tabela 'profiles'.
- *
- * CORREÇÃO CRÍTICA: O schema da tabela tem 'full_name', não 'name'.
- * A query foi atualizada para solicitar a coluna correta.
+ * Se houver erro 500, a política RLS está falhando.
  */
 async function loadProfiles() {
+    // Requisição correta
     const { data: profiles, error } = await supabaseClient
         .from('profiles')
-        // CORRIGIDO: de 'name' para 'full_name'
         .select('id, full_name, email'); 
 
     if (error) {
@@ -153,17 +151,16 @@ async function renderAdminContent() {
             // Exibe um estado de carregamento enquanto espera o resultado
             mainContent.innerHTML = `<div class="p-10 text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto"></div><p class="mt-4 text-gray-600">Carregando Perfis...</p></div>`;
 
-            // 1. Carrega os perfis
+            // 1. Carrega os perfis (aqui ocorre o erro 500)
             const profiles = await loadProfiles(); 
 
-            // 2. Renderiza o conteúdo
+            // 2. Renderiza o conteúdo (Se o erro 500 for resolvido, esta seção é executada)
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Perfis de Usuários (${profiles.length})</h2>
                     ${profiles.length > 0 
                         ? `<ul class="space-y-3">
                             ${profiles.map(p => 
-                                // CORRIGIDO: de 'p.name' para 'p.full_name'
                                 `<li class="p-3 bg-gray-50 border border-gray-200 rounded-lg">
                                     ${p.full_name || 'Nome Indefinido'} (${p.email}) - ID: ${p.id}
                                 </li>`).join('')}
@@ -174,14 +171,16 @@ async function renderAdminContent() {
             `;
 
         } catch (error) {
-            // Linha 425 no log original (o erro que você está vendo)
+            // Captura do Erro 500
             console.error("Erro ao carregar perfis:", error);
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Perfis (Erro)</p>
+                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Perfis (Erro 500 - RLS)</p>
                     <p class="text-sm text-red-600 mb-4">
-                        Parece que o código que está rodando ainda não está usando a coluna correta (<code>full_name</code>), OU a política RLS (Row Level Security) não está permitindo o acesso. Verifique a política RLS para a tabela <code>profiles</code> no seu painel Supabase.
+                        O erro 500 indica que a **Política RLS** na tabela <code>profiles</code> falhou no servidor. Por favor, vá ao painel Supabase, **exclua todas** as políticas de <code>SELECT</code> para a tabela <code>profiles</code> e crie apenas uma: 
+                        <br><br>
+                        **Role:** <code>authenticated</code>, **Using:** <code>true</code>.
                     </p>
                     <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150">
                         Tentar Novamente
@@ -228,7 +227,6 @@ function render() {
 // =============================================================
 // Monitora o estado de autenticação e renderiza a página correta.
 supabaseClient.auth.onAuthStateChange((event, session) => {
-    // Linha 485 no log original
     console.log("Evento de Autenticação:", event); 
     currentAuthSession = session;
     
