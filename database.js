@@ -168,7 +168,7 @@ async function getPatientsListHTML() {
 // A função mestre para carregar o conteúdo da aba
 // ============================================================
 async function renderAdminContent() {
-    const container = document.getElementById('admin-main-content')?.querySelector('#dynamic-content'); // Corrigido o seletor para pegar o #dynamic-content
+    const container = document.getElementById('admin-main-content')?.querySelector('#dynamic-content'); 
     if (!container) return;
 
     // Exibe o loader antes de carregar o novo conteúdo
