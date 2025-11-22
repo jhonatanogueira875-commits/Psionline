@@ -1,7 +1,6 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  Substitui auth.js e database.js.
 */
 
 // =============================================================
@@ -208,7 +207,7 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">Se não houver dados, verifique a política RLS para 'appointments' (Select: authenticated, true).</p>
+                    <p class="text-sm text-gray-500 mb-4">RLS para 'appointments' está OK! (Select: authenticated, true)</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
@@ -234,18 +233,23 @@ async function renderAdminContent() {
             `;
 
         } catch (error) {
-            // Captura do Erro 500 para 'appointments' (se o RLS estiver errado)
-            console.error("Erro ao carregar agendamentos:", error);
+            // **CAPTURA DO ERRO DE RLS**
+            console.error("Erro ao carregar agendamentos (PROVÁVEL FALHA DE RLS):", error);
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Agendamentos (Verifique RLS de 'appointments')</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA DE CARREGAMENTO (Erro de Permissão RLS)</p>
                     <p class="text-sm text-red-600">
-                        O erro 500/400 indica que a **Política RLS** na tabela <code>appointments</code> está falhando.
+                        O problema persiste na tabela **appointments**. Isso acontece porque o usuário Admin (role **authenticated**) não tem permissão para ler todos os dados.
+                        <br><br>
+                        **A solução é a política RLS:** <ul class="list-disc list-inside mt-2 text-left mx-auto max-w-sm font-mono bg-red-100 p-2 rounded-md border border-red-300">
+                            <li>Tabela: <code>appointments</code></li>
+                            <li>Operação: <code>SELECT</code></li>
+                            <li>Role: <code>authenticated</code></li>
+                            <li>Using: <code>true</code></li>
+                        </ul>
                         <br>
-                        Vá para o painel Supabase e crie a política: **Role:** <code>authenticated</code>, **Using:** <code>true</code>.
-                        <br>
-                        Detalhe do Erro: ${error.message}
+                        Detalhe do Erro (Console): ${error.message}
                     </p>
                     <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150 mt-3">
                         Tentar Novamente
