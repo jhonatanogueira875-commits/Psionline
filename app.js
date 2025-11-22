@@ -1,508 +1,456 @@
 /*
   app.js
-  Lógica principal da aplicação: Inicialização Supabase, Gestão de Estado, Navegação e Renderização da UI.
-  Este arquivo depende das funções globais expostas em auth.js e database.js.
+  Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
+  Substitui auth.js e database.js.
 */
 
-// ===========================================================
-// 1. GESTÃO DE ESTADO GLOBAL
-// ===========================================================
+// ============================================================
+// 1. CONFIGURAÇÃO SUPABASE
+// ============================================================
 
-let currentUser = null; // Informações do usuário logado (auth)
-let currentProfile = null; // Informações do perfil (tabela profiles/psychologists)
-let currentPage = "login"; // Página atual
-let currentAdminTab = "dashboard"; // Aba atual no painel de administração
+// **IMPORTANTE**: Chaves Supabase do seu projeto
+const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
-// ===========================================================
-// 2. LISTENERS DE AUTENTICAÇÃO (onAuthChangeCallback)
-// ===========================================================
+// inicializa o cliente
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+if (!supabaseClient) {
+    console.error("ERRO: O cliente Supabase não pôde ser inicializado. Verifique a chave ou o link CDN no index.html.");
+} else {
+    console.log("Supabase inicializado com sucesso.");
+}
+
+
+// ============================================================
+// 2. ESTADO E NAVEGAÇÃO
+// ============================================================
+
+let currentPage = "login"; // 'login' ou 'admin'
+let currentAdminTab = "dashboard"; // 'dashboard' ou 'appointments'
+let userSession = null;
 
 /**
- * Função de callback chamada quando o estado de autenticação muda.
- * @param {Object} event - O evento (p.ex., 'SIGNED_IN').
- * @param {Object} session - A sessão atual.
+ * Altera a página atual e renderiza.
+ * @param {string} page - A nova página ('login' ou 'admin').
  */
-async function onAuthChangeCallback(event, session) {
-    console.log("Auth Event:", event);
-    if (session) {
-        currentUser = session.user;
-        // Tenta carregar o profile
-        try {
-            const profile = await getProfile(currentUser.id); // Função de auth.js
-            
-            // Carrega dados específicos do psicólogo se a role for 'psychologist'
-            if (profile?.role === 'psychologist') {
-                const { data: psyData, error } = await supabaseClient
-                    .from('psychologists')
-                    .select('*')
-                    .eq('user_id', currentUser.id)
-                    .single();
-                
-                if (error && error.code !== 'PGRST116') { // PGRST116 = linha não encontrada
-                    throw error;
-                }
-                profile.psychologist_data = psyData; // Adiciona os dados do psicólogo ao profile
-            }
-
-
-            currentProfile = profile;
-            
-            // Navegação baseada na role
-            if (profile?.role === 'admin') {
-                currentPage = "admin";
-                currentAdminTab = "dashboard";
-            } else if (profile?.role === 'psychologist') {
-                // Psicólogo vai direto para a aba Perfil
-                currentPage = "admin";
-                currentAdminTab = "profile"; 
-            } else {
-                currentPage = "patient"; // Em desenvolvimento
-            }
-
-        } catch (e) {
-            console.error("Erro ao carregar perfil:", e);
-            currentPage = "error";
-        }
-    } else {
-        currentUser = null;
-        currentProfile = null;
-        currentPage = "login";
-    }
+function navigateTo(page) {
+    currentPage = page;
     render();
 }
 
-if (window.onAuthChange) {
-    window.onAuthChange(onAuthChangeCallback); // Chama a função de listener do auth.js
-} else {
-    console.error("ERRO: window.onAuthChange não está disponível. Verifique o arquivo auth.js.");
+/**
+ * Atualiza o estado da sessão do usuário.
+ * @param {object | null} session - Objeto de sessão do Supabase ou null.
+ */
+function setUserSession(session) {
+    userSession = session;
+    if (userSession) {
+        // Verifica se o usuário é admin
+        // No mundo real, esta verificação viria de um perfil do banco de dados (RLS)
+        // Por enquanto, assumimos que quem faz login é o admin.
+        navigateTo("admin");
+    } else {
+        navigateTo("login");
+    }
 }
 
 
-// ===========================================================
-// 3. FUNÇÕES DE RENDERIZAÇÃO DE PÁGINAS/TABS
-// ===========================================================
+// ============================================================
+// 3. AUTENTICAÇÃO
+// ============================================================
 
 /**
- * Renderiza a página de login/registro. (Mantido inalterado)
+ * Tenta fazer login com e-mail e senha.
+ */
+async function handleLogin() {
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const loginStatus = document.getElementById('login-status');
+    loginStatus.textContent = 'A processar...';
+
+    // Importante: Em um ambiente real, você deve proteger este endpoint com RLS para admins.
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: email,
+        password: password,
+    });
+
+    if (error) {
+        console.error("Erro de Login:", error.message);
+        loginStatus.textContent = `Erro de Login: ${error.message}`;
+        loginStatus.classList.remove('text-green-500');
+        loginStatus.classList.add('text-red-500');
+    } else {
+        loginStatus.textContent = 'Login bem-sucedido! Redirecionando...';
+        loginStatus.classList.remove('text-red-500');
+        loginStatus.classList.add('text-green-500');
+        setUserSession(data.session);
+    }
+}
+
+/**
+ * Desconecta o usuário.
+ */
+async function handleLogout() {
+    await supabaseClient.auth.signOut();
+    setUserSession(null);
+}
+
+// ============================================================
+// 4. RENDERIZAÇÃO DE PÁGINAS BÁSICAS
+// ============================================================
+
+/**
+ * Renderiza o formulário de login.
+ * @returns {string} HTML para a página de login.
  */
 function renderLogin() {
     return `
-        <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-            <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl">
-                <h1 class="text-3xl font-extrabold text-purple-700 mb-6 text-center">Clínica Psicologia</h1>
-                <p id="auth-message" class="text-red-500 text-center mb-4"></p>
-                
-                <div id="login-form">
-                    <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Entrar</h2>
-                    <input type="email" id="login-email" placeholder="Email" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
-                    <input type="password" id="login-password" placeholder="Senha" class="w-full p-3 mb-6 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
-                    <button onclick="handleSignIn()" class="w-full p-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition duration-150">
-                        Entrar
-                    </button>
-                    <p class="mt-4 text-center text-gray-600">
-                        Não tem conta? <a href="#" onclick="showRegisterForm()" class="text-purple-600 hover:text-purple-800 font-semibold">Registre-se</a>
-                    </p>
-                </div>
-
-                <div id="register-form" style="display:none;">
-                    <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Novo Usuário</h2>
-                    <input type="text" id="reg-name" placeholder="Nome Completo" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required>
-                    <input type="email" id="reg-email" placeholder="Email" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required>
-                    <input type="password" id="reg-password" placeholder="Senha (mín. 6 caracteres)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required>
-                    
-                    <div class="mb-6">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Eu sou:</label>
-                        <select id="reg-role" class="w-full p-3 border border-gray-300 rounded-lg">
-                            <option value="patient">Paciente</option>
-                            <option value="psychologist">Psicólogo</option>
-                        </select>
+        <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div class="max-w-md w-full bg-white p-8 rounded-xl shadow-lg border border-gray-200">
+                <h2 class="text-3xl font-extrabold text-gray-900 text-center mb-6">
+                    Painel de Administração
+                </h2>
+                <p class="text-center text-sm text-gray-600 mb-6">
+                    Acesso restrito para gerentes.
+                </p>
+                <form id="login-form" onsubmit="event.preventDefault(); handleLogin();">
+                    <div class="space-y-4">
+                        <div>
+                            <label for="email" class="block text-sm font-medium text-gray-700">E-mail</label>
+                            <input id="email" name="email" type="email" autocomplete="email" required
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-700">Senha</label>
+                            <input id="password" name="password" type="password" autocomplete="current-password" required
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
+                        </div>
                     </div>
-
-                    <div id="psychologist-fields" style="display:none;">
-                        <input type="text" id="reg-license" placeholder="Nº de Licença (CRP)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg">
-                        <input type="number" id="reg-price" placeholder="Preço da Sessão (R$)" value="150" class="w-full p-3 mb-4 border border-gray-300 rounded-lg">
+                    <div class="mt-6">
+                        <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition duration-150">
+                            Entrar
+                        </button>
                     </div>
-
-                    <button onclick="handleSignUp()" class="w-full p-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-150">
-                        Registrar
-                    </button>
-                    <p class="mt-4 text-center text-gray-600">
-                        Já tem conta? <a href="#" onclick="showLoginForm()" class="text-purple-600 hover:text-purple-800 font-semibold">Entrar</a>
-                    </p>
-                </div>
+                    <p id="login-status" class="mt-4 text-center text-sm text-gray-600"></p>
+                </form>
             </div>
         </div>
-        <script>
-            document.getElementById('reg-role').addEventListener('change', (e) => {
-                const fields = document.getElementById('psychologist-fields');
-                fields.style.display = e.target.value === 'psychologist' ? 'block' : 'none';
-            });
-        </script>
     `;
 }
 
 /**
- * Renderiza o esqueleto (shell) do painel de administração.
+ * Renderiza o esqueleto da página de administração (Navbar, Tabs).
+ * @returns {string} HTML para o shell do admin.
  */
 function renderAdminShell() {
-    const isAdmin = currentProfile?.role === 'admin';
-    const tabClass = (tab) => currentAdminTab === tab 
-        ? 'bg-purple-700 text-white font-bold' 
-        : 'text-purple-200 hover:bg-purple-600';
-        
+    const adminEmail = userSession?.user?.email || "Admin";
+
+    const getTabClass = (tabName) => {
+        return currentAdminTab === tabName
+            ? "px-4 py-2 text-sm font-medium text-purple-700 bg-purple-100 rounded-lg"
+            : "px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition duration-150";
+    };
+
     return `
-        <div class="min-h-screen bg-gray-50 flex">
-            <!-- Sidebar/Navegação -->
-            <div class="w-64 bg-purple-800 text-white flex flex-col p-4 shadow-xl">
-                <div class="text-2xl font-extrabold mb-8 mt-4">Psicologia Admin</div>
-                
-                <!-- Nome e Função do Usuário -->
-                <div class="mb-8 p-3 bg-purple-700 rounded-lg">
-                    <p class="font-semibold">${currentProfile?.full_name || 'Usuário'}</p>
-                    <p class="text-sm text-purple-300">${currentProfile?.role === 'admin' ? 'Administrador' : 'Psicólogo'}</p>
+        <div class="min-h-screen bg-gray-100">
+            <!-- Navbar -->
+            <nav class="bg-white shadow-md">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between h-16">
+                        <div class="flex items-center">
+                            <span class="text-xl font-bold text-purple-600">Scheduler Admin</span>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <span class="text-sm text-gray-700">Bem-vindo, ${adminEmail}</span>
+                            <button onclick="handleLogout()"
+                                class="px-3 py-1 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-600 transition duration-150">
+                                Sair
+                            </button>
+                        </div>
+                    </div>
                 </div>
-
-                <!-- Tabs de Navegação -->
-                <nav class="flex-1 space-y-2">
-                    ${isAdmin ? `
-                        <button onclick="switchAdminTab('dashboard')" class="w-full text-left p-3 rounded-lg transition duration-150 ${tabClass('dashboard')}">
-                            Dashboard
-                        </button>
-                        <button onclick="switchAdminTab('psychologists')" class="w-full text-left p-3 rounded-lg transition duration-150 ${tabClass('psychologists')}">
-                            Psicólogos
-                        </button>
-                        <button onclick="switchAdminTab('patients')" class="w-full text-left p-3 rounded-lg transition duration-150 ${tabClass('patients')}">
-                            Pacientes
-                        </button>
-                        <button onclick="switchAdminTab('appointments')" class="w-full text-left p-3 rounded-lg transition duration-150 ${tabClass('appointments')}">
-                            Consultas
-                        </button>
-                    ` : ''}
-                    <button onclick="switchAdminTab('profile')" class="w-full text-left p-3 rounded-lg transition duration-150 ${tabClass('profile')}">
-                        Meu Perfil
-                    </button>
-                </nav>
-
-                <!-- Logout -->
-                <button onclick="handleSignOut()" class="w-full p-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition duration-150 mt-auto">
-                    Sair
-                </button>
-            </div>
+            </nav>
 
             <!-- Conteúdo Principal -->
-            <main class="flex-1 p-8 overflow-y-auto">
-                <h1 class="text-3xl font-bold text-gray-800 mb-6 capitalize">${currentAdminTab === 'profile' ? 'Meu Perfil' : currentAdminTab}</h1>
-                <div id="admin-content-area" class="bg-white p-6 rounded-xl shadow-lg">
-                    <!-- Conteúdo dinâmico será carregado aqui -->
-                    <div class="text-center p-10 text-gray-500">
-                        <div class="animate-spin inline-block w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full"></div>
-                        <p class="mt-4">Carregando dados...</p>
-                    </div>
-                </div>
-            </main>
-        </div>
-    `;
-}
-
-/**
- * Renderiza o conteúdo da aba "Meu Perfil" (Psicólogo).
- */
-function renderPsychologistProfileContent() {
-    const isPsychologist = currentProfile?.role === 'psychologist';
-    const psychologistData = currentProfile?.psychologist_data; 
-    // Usa a URL do psicólogo se existir, senão usa o avatar_url do profiles, senão placeholder
-    const avatarUrl = psychologistData?.avatar_url || currentProfile?.avatar_url || 'https://placehold.co/150x150/8b5cf6/ffffff?text=Sem+Foto';
-
-    return `
-        <div class="max-w-3xl mx-auto">
-            <h2 class="text-2xl font-bold mb-6 text-purple-700">Detalhes do Perfil e Foto</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- Seção de Dados do Perfil -->
-                <div class="bg-gray-50 p-6 rounded-xl shadow-inner">
-                    <h3 class="text-xl font-semibold mb-4 border-b pb-2 text-gray-700">Informações Básicas</h3>
-                    <p class="mb-2"><span class="font-medium text-gray-600">Nome:</span> ${currentProfile?.full_name}</p>
-                    <p class="mb-2"><span class="font-medium text-gray-600">Email:</span> ${currentUser?.email}</p>
-                    <p class="mb-2 text-xs"><span class="font-medium text-gray-600">ID de Usuário:</span> ${currentUser?.id}</p>
-                    ${isPsychologist && psychologistData ? `
-                        <h3 class="text-xl font-semibold mt-6 mb-4 border-b pb-2 text-gray-700">Informações Profissionais</h3>
-                        <p class="mb-2"><span class="font-medium text-gray-600">Status:</span> 
-                            <span class="px-2 py-1 text-xs font-semibold rounded-full ${psychologistData?.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
-                                ${psychologistData?.status || 'Pendente'}
-                            </span>
-                        </p>
-                        <p class="mb-2"><span class="font-medium text-gray-600">Licença (CRP):</span> ${psychologistData?.license_number || 'N/A'}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-600">Preço da Sessão:</span> R$ ${psychologistData?.session_price?.toFixed(2) || '150.00'}</p>
-                    ` : isPsychologist ? `
-                        <p class="mt-4 text-orange-600 font-semibold">
-                            Complete o processo de registro na tabela 'psychologists'.
-                        </p>
-                    ` : ''}
+            <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+                <!-- Tabs -->
+                <div class="mb-6 border-b border-gray-200">
+                    <nav class="flex space-x-2" aria-label="Tabs">
+                        <a href="#" onclick="currentAdminTab='dashboard'; renderAdminContent();" class="${getTabClass('dashboard')}">
+                            Painel
+                        </a>
+                        <a href="#" onclick="currentAdminTab='appointments'; renderAdminContent();" class="${getTabClass('appointments')}">
+                            Agendamentos
+                        </a>
+                        <a href="#" onclick="currentAdminTab='profiles'; renderAdminContent();" class="${getTabClass('profiles')}">
+                            Clientes
+                        </a>
+                    </nav>
                 </div>
 
-                <!-- Seção de Foto de Perfil (Avatar) -->
-                <div class="bg-white p-6 rounded-xl shadow-md">
-                    <h3 class="text-xl font-semibold mb-4 text-purple-700">Foto de Perfil</h3>
-                    <div class="flex flex-col items-center">
-                        <!-- Imagem Atual -->
-                        <img id="profile-avatar" src="${avatarUrl}" alt="Foto de Perfil" class="w-32 h-32 rounded-full object-cover border-4 border-purple-300 shadow-lg mb-4">
-                        <p class="text-sm text-gray-500 mb-4">Máximo: 5MB (JPG, PNG)</p>
-
-                        <!-- Formulário de Upload -->
-                        <input type="file" id="photo-upload-input" accept="image/png, image/jpeg, image/jpg" class="hidden" onchange="previewImage(event)">
-                        
-                        <button onclick="document.getElementById('photo-upload-input').click()" class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-600 transition duration-150 mb-4">
-                            Escolher Foto
-                        </button>
-                        
-                        <button id="upload-button" onclick="handlePhotoUpload()" 
-                                class="w-full p-3 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition duration-150 disabled:opacity-50"
-                                disabled>
-                            Enviar e Salvar Foto
-                        </button>
-
-                        <p id="upload-message" class="mt-4 text-sm font-medium"></p>
-                    </div>
+                <!-- Área de Conteúdo -->
+                <div id="admin-content" class="bg-white shadow-xl rounded-lg p-6">
+                    <!-- O conteúdo da aba será carregado aqui -->
                 </div>
             </div>
         </div>
-        <script>
-            // Funções de suporte para o formulário de upload
-            function previewImage(event) {
-                const file = event.target.files[0];
-                const avatar = document.getElementById('profile-avatar');
-                const uploadButton = document.getElementById('upload-button');
-                const message = document.getElementById('upload-message');
+    `;
+}
 
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        avatar.src = e.target.result;
-                        uploadButton.disabled = false;
-                        message.textContent = 'Nova foto pronta para envio.';
-                        message.className = 'mt-4 text-sm font-medium text-blue-600';
-                    };
-                    reader.readAsDataURL(file);
-                } else {
-                    uploadButton.disabled = true;
-                    message.textContent = '';
-                }
-            }
 
-            async function handlePhotoUpload() {
-                const input = document.getElementById('photo-upload-input');
-                const uploadButton = document.getElementById('upload-button');
-                const message = document.getElementById('upload-message');
-                const file = input.files[0];
+// ============================================================
+// 5. RENDERIZAÇÃO DE CONTEÚDO ADMIN (ASSÍNCRONO)
+// ============================================================
 
-                if (!file || !currentUser) {
-                    message.textContent = 'Erro: Selecione uma foto e faça login novamente.';
-                    message.className = 'mt-4 text-sm font-medium text-red-500';
-                    return;
-                }
+/**
+ * Formata uma string de data ISO para um formato de hora e data legível.
+ * @param {string} isoDateString - A string de data/hora ISO (e.g., "2024-01-01T10:00:00").
+ * @returns {string} Data formatada.
+ */
+function formatDate(isoDateString) {
+    if (!isoDateString) return 'N/A';
+    try {
+        const date = new Date(isoDateString);
+        return date.toLocaleString('pt-PT', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+    } catch (e) {
+        console.error("Erro ao formatar data:", e);
+        return isoDateString;
+    }
+}
 
-                // Verifica se a função de upload está disponível (deve vir do database.js)
-                if (typeof uploadPsychologistPhoto !== 'function') {
-                    message.textContent = 'Erro: Função uploadPsychologistPhoto não carregada. Verifique database.js.';
-                    message.className = 'mt-4 text-sm font-medium text-red-500';
-                    return;
-                }
+/**
+ * Mapeia e junta agendamentos com as informações de perfil do cliente.
+ * @param {Array} profiles - Lista de perfis.
+ * @param {Array} appointments - Lista de agendamentos.
+ * @returns {Array} Lista de agendamentos com detalhes do cliente (nome, email).
+ */
+function joinData(profiles, appointments) {
+    const profileMap = new Map();
+    profiles.forEach(p => profileMap.set(p.id, p));
 
-                uploadButton.disabled = true;
-                uploadButton.textContent = 'Enviando...';
-                message.textContent = 'Iniciando upload...';
-                message.className = 'mt-4 text-sm font-medium text-purple-600';
+    return appointments.map(a => ({
+        ...a,
+        client: profileMap.get(a.profile_id) || { name: 'Desconhecido', email: 'N/A' }
+    }));
+}
 
-                try {
-                    // Chama a função global do database.js
-                    const newUrl = await uploadPsychologistPhoto(file, currentUser.id);
-                    
-                    message.textContent = 'Sucesso! Foto atualizada.';
-                    message.className = 'mt-4 text-sm font-medium text-green-600';
-                    
-                    // Atualiza a URL do perfil localmente 
-                    if (currentProfile && currentProfile.psychologist_data) {
-                        currentProfile.psychologist_data.avatar_url = newUrl;
-                    }
-                    // Força a atualização da imagem do avatar com a nova URL pública
-                    document.getElementById('profile-avatar').src = newUrl;
+/**
+ * Renderiza o conteúdo em caso de sucesso no carregamento de dados.
+ * @param {Array} profiles - Lista de todos os perfis.
+ * @param {Array} appointments - Lista de todos os agendamentos.
+ */
+function renderAdminContentSuccess(profiles, appointments) {
+    const contentArea = document.getElementById("admin-content");
+    const combinedAppointments = joinData(profiles, appointments);
 
-                } catch (error) {
-                    console.error("Erro no upload:", error);
-                    message.textContent = \`Erro: \${error.message || 'Falha desconhecida.'}\`;
-                    message.className = 'mt-4 text-sm font-medium text-red-500';
-                } finally {
-                    uploadButton.textContent = 'Enviar e Salvar Foto';
-                    input.value = ''; // Limpa o input file
-                    // O botão só é reativado se houver um novo arquivo selecionado
-                    uploadButton.disabled = true; 
-                }
-            }
-        </script>
+    // Ordena os agendamentos pelo mais recente primeiro
+    combinedAppointments.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // =========================================================================
+    // RENDERIZAÇÃO
+    // =========================================================================
+
+    let html = '';
+
+    if (currentAdminTab === 'dashboard') {
+        html = `
+            <h3 class="text-2xl font-semibold text-gray-800 mb-6 border-b pb-2">Resumo do Painel</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <!-- Card 1: Total de Clientes -->
+                <div class="bg-blue-500 text-white p-6 rounded-xl shadow-lg">
+                    <p class="text-3xl font-bold">${profiles.length}</p>
+                    <p class="text-lg font-medium">Clientes Registrados</p>
+                </div>
+                <!-- Card 2: Total de Agendamentos -->
+                <div class="bg-green-500 text-white p-6 rounded-xl shadow-lg">
+                    <p class="text-3xl font-bold">${appointments.length}</p>
+                    <p class="text-lg font-medium">Agendamentos Totais</p>
+                </div>
+                <!-- Card 3: Pendentes -->
+                <div class="bg-yellow-500 text-white p-6 rounded-xl shadow-lg">
+                    <p class="text-3xl font-bold">${appointments.filter(a => a.status === 'pending').length}</p>
+                    <p class="text-lg font-medium">Agendamentos Pendentes</p>
+                </div>
+            </div>
+
+            <h4 class="text-xl font-semibold text-gray-800 mb-4">Últimos 5 Agendamentos</h4>
+            ${renderAppointmentTable(combinedAppointments.slice(0, 5))}
+        `;
+    } else if (currentAdminTab === 'appointments') {
+        html = `
+            <h3 class="text-2xl font-semibold text-gray-800 mb-6 border-b pb-2">Todos os Agendamentos</h3>
+            ${renderAppointmentTable(combinedAppointments)}
+        `;
+    } else if (currentAdminTab === 'profiles') {
+        html = `
+            <h3 class="text-2xl font-semibold text-gray-800 mb-6 border-b pb-2">Lista de Clientes</h3>
+            ${renderProfileTable(profiles)}
+        `;
+    }
+
+    contentArea.innerHTML = html;
+}
+
+/**
+ * Gera o HTML para a tabela de agendamentos.
+ */
+function renderAppointmentTable(appointments) {
+    if (appointments.length === 0) {
+        return '<p class="text-gray-500">Nenhum agendamento encontrado.</p>';
+    }
+    
+    return `
+        <div class="overflow-x-auto bg-white rounded-lg shadow-md">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data/Hora</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Serviço</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    ${appointments.map(a => `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${formatDate(a.date)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${a.service || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${a.client.name} (<a href="mailto:${a.client.email}" class="text-blue-600 hover:text-blue-800">${a.client.email}</a>)
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                    ${a.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                                      a.status === 'confirmed' ? 'bg-green-100 text-green-800' : 
+                                      'bg-gray-100 text-gray-800'}">
+                                    ${a.status}
+                                </span>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
     `;
 }
 
 /**
- * Função assíncrona para carregar e renderizar o conteúdo da aba de Admin.
+ * Gera o HTML para a tabela de perfis.
+ */
+function renderProfileTable(profiles) {
+    if (profiles.length === 0) {
+        return '<p class="text-gray-500">Nenhum perfil de cliente encontrado.</p>';
+    }
+
+    return `
+        <div class="overflow-x-auto bg-white rounded-lg shadow-md">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID do Perfil</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-mail</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    ${profiles.map(p => `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">${p.id}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${p.name || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${p.email || 'N/A'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+
+/**
+ * Renderiza o conteúdo em caso de erro no carregamento de dados.
+ * @param {object} error - O objeto de erro retornado pelo Supabase.
+ * @param {string} title - Título amigável do erro.
+ */
+function renderAdminContentError(error, title) {
+    const contentArea = document.getElementById("admin-content");
+    contentArea.innerHTML = `
+        <div class="p-10 text-center bg-red-50 rounded-lg border border-red-300">
+            <svg class="mx-auto h-12 w-12 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <h3 class="mt-2 text-xl font-medium text-red-800">${title}</h3>
+            <p class="mt-1 text-sm text-red-600">
+                Ocorreu um erro ao carregar os dados. Isto geralmente é um problema de Permissão (RLS).
+            </p>
+            <p class="mt-4 text-left text-xs text-red-700 p-2 bg-red-100 rounded-md break-all">
+                <strong>Detalhes do Erro:</strong> ${error?.message || error}
+            </p>
+            <p class="mt-4 text-sm text-red-800 font-semibold">
+                <strong>Solução Sugerida:</strong> Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem e se o RLS
+                permite a leitura (select) para a role <code>anon</code>.
+            </p>
+            <button onclick="renderAdminContent()" class="mt-6 px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150">
+                Tentar Novamente
+            </button>
+        </div>
+    `;
+}
+
+
+/**
+ * Carrega e renderiza o conteúdo principal da aba (Painel ou Agendamentos).
  */
 async function renderAdminContent() {
-    const contentArea = document.getElementById("admin-content-area");
-    if (!contentArea) return;
-
-    // Se for a aba de perfil, carrega e renderiza o conteúdo do psicólogo
-    if (currentAdminTab === 'profile') {
-        contentArea.innerHTML = renderPsychologistProfileContent();
-        return;
-    }
-
-    // Carrega e renderiza o Dashboard (mantido como exemplo)
-    if (currentAdminTab === 'dashboard') {
-        try {
-            const data = await loadDashboardData(); // Função de agregação do database.js
-            // Simplesmente mostra a contagem (substituir por dashboard real)
-            contentArea.innerHTML = `
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Estatísticas Rápidas</h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="bg-blue-100 p-4 rounded-xl shadow-inner">
-                        <p class="text-sm text-blue-700 font-medium">Psicólogos Registrados</p>
-                        <p class="text-3xl font-bold text-blue-900">${data.psychologists.length}</p>
-                    </div>
-                    <div class="bg-green-100 p-4 rounded-xl shadow-inner">
-                        <p class="text-sm text-green-700 font-medium">Consultas Totais</p>
-                        <p class="text-3xl font-bold text-green-900">${data.appointments.length}</p>
-                    </div>
-                    <div class="bg-purple-100 p-4 rounded-xl shadow-inner">
-                        <p class="text-sm text-purple-700 font-medium">Receita Total</p>
-                        <p class="text-3xl font-bold text-purple-900">R$ ${data.totalRevenue}</p>
-                    </div>
-                </div>
-                <h2 class="text-xl font-semibold mt-8 mb-4 text-gray-700">Visão Geral de Dados</h2>
-                <!-- Conteúdo das outras abas (Psicólogos, Pacientes, Consultas) seria listado aqui -->
-            `;
-        } catch (error) {
-            console.error("Erro ao carregar dashboard:", error);
-            contentArea.innerHTML = `
-                <div class="text-center p-10 bg-red-50 rounded-lg">
-                    <p class="text-red-700 font-semibold mb-4">
-                        ⚠️ Erro ao carregar dados.
-                    </p>
-                    <p class="text-sm text-red-600 mb-6">
-                        <strong>Motivo:</strong> Verifique se todas as tabelas e o RLS permitem a leitura (select).
-                    </p>
-                    <button onclick="renderAdminContent()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150">
-                        Tentar Novamente
-                    </button>
-                </div>
-            `;
-        }
-    }
-}
-
-
-// ===========================================================
-// 4. FUNÇÕES DE SUPORTE E NAVEGAÇÃO
-// ===========================================================
-
-/**
- * Alterna entre as abas do painel de administração e força a renderização do conteúdo.
- */
-function switchAdminTab(tabName) {
-    currentAdminTab = tabName;
-    document.getElementById("app").innerHTML = renderAdminShell();
-    renderAdminContent();
-}
-
-/**
- * Alterna para o formulário de registro.
- */
-function showRegisterForm() {
-    document.getElementById('login-form').style.display = 'none';
-    document.getElementById('register-form').style.display = 'block';
-    document.getElementById('auth-message').textContent = '';
-}
-
-/**
- * Alterna para o formulário de login.
- */
-function showLoginForm() {
-    document.getElementById('login-form').style.display = 'block';
-    document.getElementById('register-form').style.display = 'none';
-    document.getElementById('auth-message').textContent = '';
-}
-
-/**
- * Lida com o processo de login.
- */
-async function handleSignIn() {
-    const email = document.getElementById('login-email').value;
-    const password = document.getElementById('login-password').value;
-    const message = document.getElementById('auth-message');
-    message.textContent = '';
-    
-    try {
-        await signIn(email, password); // Função de auth.js
-        // O onAuthChangeCallback cuidará da navegação
-    } catch (error) {
-        message.textContent = `Erro ao entrar: ${error.message}`;
-        console.error("Erro no Login:", error);
-    }
-}
-
-/**
- * Lida com o processo de registro.
- */
-async function handleSignUp() {
-    const name = document.getElementById('reg-name').value;
-    const email = document.getElementById('reg-email').value;
-    const password = document.getElementById('reg-password').value;
-    const role = document.getElementById('reg-role').value;
-    const license = document.getElementById('reg-license').value;
-    const price = document.getElementById('reg-price').value;
-    const message = document.getElementById('auth-message');
-    message.textContent = '';
-
-    if (role === 'psychologist' && (!license || !price)) {
-        message.textContent = 'Psicólogos devem fornecer o número de licença e o preço da sessão.';
-        return;
-    }
+    const contentArea = document.getElementById("admin-content");
+    contentArea.innerHTML = `<div class="p-8 text-center"><span class="animate-spin h-6 w-6 border-4 border-purple-500 border-t-transparent rounded-full inline-block"></span> Carregando dados do painel...</div>`;
 
     try {
-        // 1. Cria o usuário e o perfil básico
-        const { user } = await signUp(email, password, name, role); // Função de auth.js
+        // Fetch Profiles (Aplica-se RLS: anon deve poder LER o que é visível publicamente)
+        const { data: profilesData, error: profilesError } = await supabaseClient
+            .from('profiles')
+            .select('id, name, email'); 
 
-        // 2. Se for psicólogo, cria o registro na tabela 'psychologists'
-        if (role === 'psychologist' && user) {
-            await createPsychologistProfile(user.id, parseFloat(price), license); // Função de database.js
+        if (profilesError) {
+            console.error('Erro ao carregar perfis:', profilesError);
+            // Chama o render de erro com a sugestão de RLS
+            return renderAdminContentError(profilesError, "Erro ao carregar Perfis");
         }
 
-        message.textContent = 'Registro bem-sucedido! Você será redirecionado em breve.';
-        message.className = 'text-green-600 font-semibold text-center mb-4';
-        // A navegação real é feita pelo onAuthChangeCallback
+        // Fetch Appointments (Aplica-se RLS: anon deve poder LER o que é visível publicamente)
+        const { data: appointmentsData, error: appointmentsError } = await supabaseClient
+            .from('appointments')
+            .select('id, date, service, status, profile_id'); 
 
-    } catch (error) {
-        message.textContent = `Erro no registro: ${error.message}`;
-        message.className = 'text-red-500 font-semibold text-center mb-4';
-        console.error("Erro no Registro:", error);
-    }
-}
+        if (appointmentsError) {
+            console.error('Erro ao carregar agendamentos:', appointmentsError);
+            // Chama o render de erro com a sugestão de RLS
+            return renderAdminContentError(appointmentsError, "Erro ao carregar Agendamentos");
+        }
 
-/**
- * Lida com o processo de logout.
- */
-async function handleSignOut() {
-    try {
-        await signOut(); // Função de auth.js
-        // O onAuthChangeCallback cuidará da navegação
-    } catch (error) {
-        console.error("Erro no Logout:", error);
-        // Continua a renderização para a página de login
-        onAuthChangeCallback('SIGNED_OUT', null);
+        // Se ambos foram bem-sucedidos
+        renderAdminContentSuccess(profilesData, appointmentsData);
+
+    } catch (e) {
+        console.error("Erro inesperado durante o carregamento de dados do admin:", e);
+        renderAdminContentError(e, "Erro Geral Inesperado");
     }
 }
 
 
-// ===========================================================
-// 5. FUNÇÃO MESTRE DE RENDERIZAÇÃO
-// ===========================================================
+// ============================================================
+// 6. FUNÇÃO MESTRE DE RENDERIZAÇÃO
+// ============================================================
 
 /**
  * Função principal que decide qual página renderizar.
@@ -524,44 +472,29 @@ function render() {
         return;
     }
 
-    if (currentPage === "patient") {
-        app.innerHTML = `
-            <div class="min-h-screen flex items-center justify-center bg-blue-100 p-4">
-                <div class="text-center p-10 bg-white rounded-xl shadow-lg">
-                    <h1 class="text-3xl font-bold text-blue-700 mb-4">Painel do Paciente em Desenvolvimento</h1>
-                    <p class="text-gray-600 mb-6">Em breve, o paciente poderá buscar e agendar consultas.</p>
-                    <button onclick="handleSignOut()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150">
-                        Sair
-                    </button>
-                </div>
-            </div>
-        `;
-        return;
-    }
-
-
-    if (currentPage === "error") {
-        app.innerHTML = `
-            <div class="min-h-screen flex items-center justify-center bg-red-100 p-4">
-                <div class="text-center p-10 bg-white rounded-xl shadow-lg">
-                    <h1 class="text-3xl font-bold text-red-700 mb-4">Erro Crítico</h1>
-                    <p class="text-gray-600 mb-6">Ocorreu um erro ao carregar seus dados de perfil. Por favor, tente sair e entrar novamente.</p>
-                    <button onclick="handleSignOut()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150">
-                        Sair
-                    </button>
-                </div>
-            </div>
-        `;
-        return;
-    }
-
     app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
 }
 
-// ===========================================================
-// 6. INICIALIZAÇÃO
-// ===========================================================
-// A função de inicialização é o onAuthStateChangeCallback, que é chamada
-// automaticamente pelo listener do Supabase após o carregamento da página (via auth.js).
+// ============================================================
+// 7. INICIALIZAÇÃO
+// ============================================================
+// A função de inicialização é responsável por configurar o listener de autenticação
+// e renderizar o estado inicial do aplicativo.
 
+supabaseClient?.auth.onAuthStateChange((event, session) => {
+    console.log(`Evento de Autenticação: ${event}`);
+    // O evento INITIAL_SESSION é o mais importante para definir o estado inicial.
+    // Todos os outros eventos (SIGNED_IN, SIGNED_OUT, etc.) atualizam o estado.
+    setUserSession(session);
+});
 
+// A primeira renderização ocorrerá dentro do onAuthStateChange
+// para garantir que o estado de autenticação seja carregado primeiro.
+if (!supabaseClient) {
+    // Se o Supabase falhou ao inicializar, mostre uma mensagem de erro na tela.
+    document.getElementById("app").innerHTML = `
+        <div class="p-10 text-center text-red-700 bg-red-100 min-h-screen flex items-center justify-center">
+            ERRO CRÍTICO: Cliente Supabase não inicializado. Verifique a configuração no console.
+        </div>
+    `;
+}
