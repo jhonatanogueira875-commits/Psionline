@@ -1,7 +1,7 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  TRATAMENTO DE ERRO REFORÇADO PARA MOSTRAR MAIS DETALHES DE FALHAS RLS.
+  CORREÇÃO: Uso de sintaxe de JOIN explícito para resolver ambiguidade de Foreign Keys.
 */
 
 // =============================================================
@@ -27,7 +27,7 @@ if (!supabaseClient) {
 
 let currentPage = "login";
 let currentAuthSession = null;
-let currentAdminTab = "appointments"; // Inicia em appointments para testar o erro
+let currentAdminTab = "appointments"; 
 
 // =============================================================
 // 3. FUNÇÕES DE AUTENTICAÇÃO (MANTIDAS BREVES)
@@ -78,10 +78,9 @@ async function handleLogout() {
  * Carrega todos os perfis da tabela 'profiles'.
  */
 async function loadProfiles() {
-    // Esta query é simples e deve funcionar se a RLS em 'profiles' estiver OK.
     const { data: profiles, error } = await supabaseClient
         .from('profiles')
-        .select('id, full_name, email'); 
+        .select('id, full_name, email, role'); // Adicionando 'role'
 
     if (error) {
         throw error; 
@@ -91,13 +90,17 @@ async function loadProfiles() {
 
 /**
  * Carrega todos os agendamentos da tabela 'appointments'.
- * Faz um join (join implícito) para obter o nome do usuário.
+ * Usa JOIN explícito para obter o perfil do PACIENTE, evitando ambiguidade.
  */
 async function loadAppointments() {
-    // Query que exige RLS de SELECT em ambas as tabelas: 'appointments' E 'profiles'.
+    // CORREÇÃO APLICADA AQUI: Usando profiles!appointments_patient_id_fkey1
     const { data: appointments, error } = await supabaseClient
         .from('appointments')
-        .select('*, profiles(full_name, email)');
+        // Traz as colunas de appointments, e o perfil do paciente via FK específica
+        .select(`
+            *, 
+            patient:profiles!appointments_patient_id_fkey1 (full_name, email) 
+            `);
 
     if (error) {
         throw error;
@@ -180,7 +183,7 @@ async function renderAdminContent() {
                         ? `<ul class="space-y-3">
                             ${profiles.map(p => 
                                 `<li class="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                    <span class="font-semibold">${p.full_name || 'Nome Indefinido'}</span> (${p.email}) - ID: ${p.id}
+                                    <span class="font-semibold">${p.full_name || 'Nome Indefinido'}</span> (${p.email}) - <span class="text-purple-600 font-medium">${p.role || 'Sem Função'}</span> - ID: ${p.id}
                                 </li>`).join('')}
                         </ul>`
                         : `<p class="text-red-500">Nenhum perfil encontrado.</p>`
@@ -210,22 +213,24 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">Sucesso! RLS em 'appointments' e 'profiles' está funcionando.</p>
+                    <p class="text-sm text-gray-500 mb-4">Sucesso! A ambiguidade de JOIN foi resolvida (Verifique os dados abaixo).</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
                             ${appointments.map(a => {
-                                // Assume que o campo 'date' existe e o join com 'profiles' funcionou
-                                // Caso o campo 'date' não exista, usa created_at
+                                // Assume que o campo 'date' existe e o join com 'patient' funcionou
                                 const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
-                                // Acessa o objeto aninhado 'profiles' para pegar o nome
-                                const userName = a.profiles?.full_name || 'Usuário Desconhecido';
-                                const userEmail = a.profiles?.email || 'N/A';
+                                // Acessa o objeto aninhado 'patient' (novo nome do join)
+                                const patientName = a.patient?.full_name || 'Usuário Desconhecido';
+                                const patientEmail = a.patient?.email || 'N/A';
+                                // Exibe o ID do psicólogo, pois não fizemos join para ele (para simplificar)
+                                const psychologistId = a.psychologist_id || 'N/A'; 
 
                                 return `<li class="p-4 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
                                     <div class="font-semibold text-indigo-700">Agendamento ID: ${a.id}</div>
                                     <div class="text-sm text-gray-700 mt-1">Data/Hora: <span class="font-medium">${appointmentDate}</span></div>
-                                    <div class="text-sm text-gray-700">Usuário: <span class="font-medium">${userName}</span> (${userEmail})</div>
+                                    <div class="text-sm text-gray-700">Paciente: <span class="font-medium">${patientName}</span> (${patientEmail})</div>
+                                    <div class="text-xs text-gray-500">ID Psicólogo: ${psychologistId}</div>
                                     <div class="text-xs text-gray-500 mt-2">Descrição/Status: ${a.description || a.status || 'Detalhes não preenchidos'}</div>
                                 </li>`;
                             }).join('')}
@@ -236,23 +241,19 @@ async function renderAdminContent() {
             `;
 
         } catch (error) {
-            // **CAPTURA DO ERRO DETALHADO**
+            // **CAPTURA DE ERRO APÓS CORREÇÃO DO JOIN**
             const errorMessage = error.message || error.details || "Erro de RLS genérico (objeto não stringificado).";
             
             // Loga o erro completo no console para o debug
-            console.error("Erro DETALHADO ao carregar agendamentos:", JSON.stringify(error));
+            console.error("Erro DETALHADO ao carregar agendamentos (Agora deve ser RLS):", JSON.stringify(error));
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (AGORA É QUASE CERTEZA QUE É RLS)</p>
                     <p class="text-sm text-red-600">
-                        O erro de RLS (Row Level Security) persiste. A causa mais provável é a **falha no JOIN implícito** devido à sua conta de administrador **não ter um registro correspondente na tabela \`profiles\`**.
+                        O erro de ambiguidade de JOIN foi corrigido. Se este erro persistir, o problema é puramente na **Row Level Security (RLS)** das tabelas `appointments` ou `profiles`.
                         <br><br>
-                        **AÇÕES URGENTES:**
-                        <ul class="list-disc list-inside text-left mx-auto max-w-sm mt-2">
-                            <li>1. **Verifique se sua conta de administrador existe na tabela \`profiles\`** (com o mesmo \`id\` do \`auth.users\`).</li>
-                            <li>2. **Saia e faça o login novamente** para renovar o token de sessão.</li>
-                        </ul>
+                        **AÇÃO:** Verifique a política de RLS de `SELECT` nas tabelas `appointments` e `profiles` para garantir que um usuário autenticado possa ler os dados.
                         <br>
                         Detalhe do Erro: <span class="font-mono text-xs block mt-1 p-2 bg-red-100 rounded">${errorMessage}</span>
                     </p>
