@@ -1,329 +1,258 @@
 /*
-  app.js
-  Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  CORREÇÃO FINAL (Multi-JOIN Explícito): Implementação da solução definitiva 
-  para o erro PGRST201, explicitando AMBAS as relações (paciente e psicólogo) 
-  usando os nomes das Foreign Keys.
+  app.js – Versão FINAL (JOIN fixado usando views)
+  Sistema: PsiOnline
+  Autor: ChatGPT
 */
 
 // =============================================================
 // 1. CONFIGURAÇÃO SUPABASE
 // =============================================================
-
-// **IMPORTANTE**: Chaves Supabase do seu projeto
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
-// inicializa o cliente
-const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const supabaseClient = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
 if (!supabaseClient) {
-    console.error("ERRO: O cliente Supabase não pôde ser inicializado. Verifique a chave ou o link CDN no index.html.");
+  console.error("ERRO AO INICIALIZAR SUPABASE");
 } else {
-    console.log("Supabase inicializado com sucesso.");
+  console.log("Supabase inicializado.");
 }
 
 // =============================================================
-// 2. VARIÁVEIS GLOBAIS
+// 2. ESTADO GLOBAL
 // =============================================================
-
 let currentPage = "login";
 let currentAuthSession = null;
-let currentAdminTab = "appointments"; 
+let currentAdminTab = "appointments";
 
 // =============================================================
-// 3. FUNÇÕES DE AUTENTICAÇÃO (MANTIDAS BREVES)
+// 3. AUTENTICAÇÃO
 // =============================================================
-
-// Exemplo de função de login
 async function handleLogin(email, password) {
-    const loginErrorMessage = document.getElementById("login-error-message");
-    
-    // Esconde qualquer erro anterior
-    if (loginErrorMessage) {
-        loginErrorMessage.classList.add('hidden');
+  const msg = document.getElementById("login-error-message");
+  if (msg) msg.classList.add("hidden");
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    if (msg) {
+      msg.textContent = "Erro de Login: email ou senha inválidos.";
+      msg.classList.remove("hidden");
     }
+    return;
+  }
 
-    const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: email,
-        password: password,
-    });
-
-    if (error) {
-        // Trata a falha de login exibindo a mensagem na tela (Erro 400)
-        console.error("Erro de Login:", error.message);
-        if (loginErrorMessage) {
-            loginErrorMessage.textContent = "Erro de Login: Credenciais inválidas. Verifique seu email/senha e o status de confirmação do usuário no painel Supabase.";
-            loginErrorMessage.classList.remove('hidden');
-        }
-        return;
-    }
-
-    currentAuthSession = data.session;
-    currentPage = "admin";
-    render();
+  currentAuthSession = data.session;
+  currentPage = "admin";
+  render();
 }
 
-// Exemplo de função de logout
 async function handleLogout() {
-    await supabaseClient.auth.signOut();
-    currentAuthSession = null;
-    currentPage = "login";
-    render();
+  await supabaseClient.auth.signOut();
+  currentPage = "login";
+  currentAuthSession = null;
+  render();
 }
 
 // =============================================================
-// 4. FUNÇÕES DE CARREGAMENTO DE DADOS (DATABASE)
+// 4. BANCO DE DADOS (JOIN com views!)
 // =============================================================
 
-/**
- * Carrega todos os perfis da tabela 'profiles'.
- */
+/** Carrega perfis */
 async function loadProfiles() {
-    const { data: profiles, error } = await supabaseClient
-        .from('profiles')
-        .select('id, full_name, email, role'); // Adicionando 'role'
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .select("id, full_name, email, role");
 
-    if (error) {
-        throw error; 
-    }
-    return profiles;
+  if (error) throw error;
+  return data;
 }
 
-/**
- * Carrega todos os agendamentos da tabela 'appointments'.
- * Solução definitiva para o PGRST201: Seleção explícita de ambas as relações.
- */
+/** Carrega agendamentos — agora usando VIEWS para evitar erro PGRST201 */
 async function loadAppointments() {
-    // TRECHO DE CÓDIGO FINAL CORRIGIDO, baseado na sua observação.
-    const { data: appointments, error } = await supabaseClient
-        .from('appointments')
-        .select(`
-            *,
-            patient:profiles!appointments_patient_id_fkey1 (
-              id,
-              full_name,
-              email
-            ),
-            psychologist:profiles!appointments_psychologist_id_fkey1 (
-              id,
-              full_name,
-              email
-            )
-        `);
+  const { data, error } = await supabaseClient
+    .from("appointments")
+    .select(`
+      *,
+      patient:patients_view!appointments_patient_id_fkey1 (
+        id,
+        full_name,
+        email
+      ),
+      psychologist:psychologists_view!appointments_psychologist_id_fkey1 (
+        id,
+        full_name,
+        email
+      )
+    `);
 
-    if (error) {
-        // Loga o erro completo no console para o debug
-        console.error("Erro DETALHADO ao carregar agendamentos (Join Multi-Explícito Final):", JSON.stringify(error));
-        throw error;
-    }
-    return appointments;
+  if (error) {
+    console.error("ERRO JOIN appointments:", error);
+    throw error;
+  }
+
+  return data;
 }
 
-
-// Funções de renderização da UI (esboços)
+// =============================================================
+// 5. TELAS
+// =============================================================
 function renderLogin() {
-    // Esqueleto da página de Login
-    return `
-        <div class="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-            <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl">
-                <h1 class="text-3xl font-bold text-center text-purple-700 mb-8">Login Administrativo</h1>
-                <form id="login-form" onsubmit="event.preventDefault(); handleLogin(document.getElementById('email').value, document.getElementById('password').value);">
-                    <div class="mb-4">
-                        <label for="email" class="block text-gray-700 font-semibold mb-2">Email</label>
-                        <!-- Use seu email de administrador real e confirmado -->
-                        <input type="email" id="email" placeholder="Seu email cadastrado no Supabase" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
-                    </div>
-                    <div class="mb-6">
-                        <label for="password" class="block text-gray-700 font-semibold mb-2">Senha</label>
-                        <!-- Use sua senha real -->
-                        <input type="password" id="password" placeholder="Sua senha" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" required>
-                    </div>
-                    <button type="submit" class="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition duration-200 shadow-md">Entrar</button>
-                    <p id="login-error-message" class="mt-4 text-center text-sm text-red-500 hidden">Erro de Login: Credenciais inválidas.</p>
-                </form>
-            </div>
-        </div>
-    `;
+  return `
+    <div class="flex items-center justify-center min-h-screen bg-gray-100">
+      <div class="bg-white p-8 rounded-xl shadow-xl w-full max-w-md">
+        <h1 class="text-3xl font-bold text-center text-purple-700 mb-6">Login Administrativo</h1>
+
+        <form onsubmit="event.preventDefault(); handleLogin(email.value, password.value)">
+          <label class="block mb-3">
+            <span class="font-semibold text-gray-700">Email</span>
+            <input id="email" type="email" class="w-full p-3 border rounded-lg mt-1" required>
+          </label>
+
+          <label class="block mb-4">
+            <span class="font-semibold text-gray-700">Senha</span>
+            <input id="password" type="password" class="w-full p-3 border rounded-lg mt-1" required>
+          </label>
+
+          <button class="w-full bg-purple-600 text-white p-3 rounded-lg hover:bg-purple-700 font-bold">Entrar</button>
+
+          <p id="login-error-message" class="hidden mt-4 text-center text-red-500 text-sm"></p>
+        </form>
+      </div>
+    </div>
+  `;
 }
 
 function renderAdminShell() {
-    // Esqueleto da página de Admin
-    return `
-        <div class="min-h-screen bg-gray-50 flex flex-col">
-            <header class="bg-purple-700 text-white p-4 shadow-lg flex justify-between items-center">
-                <h1 class="text-xl font-bold">Painel de Administração</h1>
-                <nav>
-                    <button onclick="currentAdminTab = 'profiles'; renderAdminContent();" class="px-4 py-2 rounded-lg ${currentAdminTab === 'profiles' ? 'bg-purple-800' : 'hover:bg-purple-600'}">Perfis</button>
-                    <button onclick="currentAdminTab = 'appointments'; renderAdminContent();" class="px-4 py-2 rounded-lg ${currentAdminTab === 'appointments' ? 'bg-purple-800' : 'hover:bg-purple-600'}">Agendamentos</button>
-                    <button onclick="handleLogout()" class="ml-4 bg-red-500 px-4 py-2 rounded-lg hover:bg-red-600 transition duration-200">Sair</button>
-                </nav>
-            </header>
-            <main class="flex-grow p-6">
-                <div id="admin-content" class="container mx-auto">
-                    <!-- Conteúdo será carregado aqui por renderAdminContent() -->
-                </div>
-            </main>
-        </div>
-    `;
+  return `
+    <div class="min-h-screen bg-gray-50 flex flex-col">
+      <header class="bg-purple-700 text-white p-4 flex justify-between">
+        <h1 class="text-xl font-bold">Painel Administrativo</h1>
+        <nav>
+          <button onclick="currentAdminTab='profiles'; renderAdminContent()" class="px-4 py-2 ${currentAdminTab === 'profiles' ? 'bg-purple-900' : 'hover:bg-purple-600'} rounded-lg">Perfis</button>
+          <button onclick="currentAdminTab='appointments'; renderAdminContent()" class="px-4 py-2 ${currentAdminTab === 'appointments' ? 'bg-purple-900' : 'hover:bg-purple-600'} rounded-lg">Agendamentos</button>
+          <button onclick="handleLogout()" class="ml-4 bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg">Sair</button>
+        </nav>
+      </header>
+
+      <main class="flex-grow p-6">
+        <div id="admin-content"></div>
+      </main>
+    </div>
+  `;
 }
 
 // =============================================================
-// 5. FUNÇÃO DE RENDERIZAÇÃO DE CONTEÚDO (ADMIN)
+// 6. CONTEÚDO DA ÁREA ADMINISTRATIVA
 // =============================================================
-
-/**
- * Carrega e renderiza o conteúdo específico da aba de Administração.
- * Esta função é assíncrona.
- */
 async function renderAdminContent() {
-    const mainContent = document.getElementById("admin-content");
+  const box = document.getElementById("admin-content");
 
-    if (currentAdminTab === 'profiles') {
-        try {
-            // Exibe um estado de carregamento
-            mainContent.innerHTML = `<div class="p-10 text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto"></div><p class="mt-4 text-gray-600">Carregando Perfis...</p></div>`;
+  // LOADING
+  box.innerHTML = `
+    <div class="p-10 text-center">
+      <div class="animate-spin h-10 w-10 border-b-2 border-purple-700 mx-auto"></div>
+      <p class="mt-4 text-gray-600">Carregando...</p>
+    </div>
+  `;
 
-            const profiles = await loadProfiles(); 
+  // -------- PERFIS ----------
+  if (currentAdminTab === "profiles") {
+    try {
+      const profiles = await loadProfiles();
 
-            // Renderiza a lista de perfis
-            mainContent.innerHTML = `
-                <div class="p-6 bg-white shadow-lg rounded-xl">
-                    <h2 class="text-2xl font-bold text-gray-800 mb-6">Perfis de Usuários (${profiles.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">RLS para 'profiles' está OK para a query direta.</p>
-                    ${profiles.length > 0 
-                        ? `<ul class="space-y-3">
-                            ${profiles.map(p => 
-                                `<li class="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                    <span class="font-semibold">${p.full_name || 'Nome Indefinido'}</span> (${p.email}) - <span class="text-purple-600 font-medium">${p.role || 'Sem Função'}</span> - ID: ${p.id}
-                                </li>`).join('')}
-                        </ul>`
-                        : `<p class="text-red-500">Nenhum perfil encontrado.</p>`
-                    }
-                </div>
-            `;
-
-        } catch (error) {
-            // Captura do Erro 500 para 'profiles' 
-            console.error("Erro ao carregar perfis:", JSON.stringify(error));
-            
-            mainContent.innerHTML = `
-                <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">Falha ao Carregar Perfis (Verifique RLS de 'profiles')</p>
-                    <p class="text-sm text-red-600">Erro: ${error.message}</p>
-                </div>
-            `;
-        }
-    } else if (currentAdminTab === 'appointments') {
-        try {
-            // Exibe um estado de carregamento
-            mainContent.innerHTML = `<div class="p-10 text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto"></div><p class="mt-4 text-gray-600">Carregando Agendamentos...</p></div>`;
-
-            const appointments = await loadAppointments();
-            
-            // Renderiza a lista de agendamentos
-            mainContent.innerHTML = `
-                <div class="p-6 bg-white shadow-lg rounded-xl">
-                    <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4 font-bold text-green-700">SUCESSO: O erro PGRST201 deve ter sido resolvido.</p>
-
-                    ${appointments.length > 0 
-                        ? `<ul class="space-y-4">
-                            ${appointments.map(a => {
-                                // Assume que o campo 'date' existe
-                                const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
-                                
-                                // ACESSA OS OBJETOS PELOS ALIAS 'patient' e 'psychologist' (conforme a query corrigida)
-                                // Tratamento de array (caso o PostgREST retorne um array de 1 item)
-                                const patient = Array.isArray(a.patient) ? a.patient[0] : a.patient; 
-                                const psychologist = Array.isArray(a.psychologist) ? a.psychologist[0] : a.psychologist; 
-                                
-                                const patientName = patient?.full_name || 'Usuário Desconhecido';
-                                const patientEmail = patient?.email || 'N/A';
-                                
-                                const psychologistName = psychologist?.full_name || 'Psicólogo Desconhecido';
-                                const psychologistEmail = psychologist?.email || 'N/A';
-
-                                return `<li class="p-4 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
-                                    <div class="font-semibold text-indigo-700">Agendamento ID: ${a.id}</div>
-                                    <div class="text-sm text-gray-700 mt-1">Data/Hora: <span class="font-medium">${appointmentDate}</span></div>
-                                    <div class="text-sm text-gray-700">Paciente: <span class="font-medium">${patientName}</span> (${patientEmail})</div>
-                                    <div class="text-sm text-gray-700">Psicólogo: <span class="font-medium">${psychologistName}</span> (${psychologistEmail})</div>
-                                    <div class="text-xs text-gray-500 mt-2">Descrição/Status: ${a.description || a.status || 'Detalhes não preenchidos'}</div>
-                                </li>`;
-                            }).join('')}
-                        </ul>`
-                        : `<p class="text-gray-600 font-medium">Nenhum agendamento encontrado no banco de dados. (Verifique se há dados e se a RLS está permitindo a leitura.)</p>`
-                    }
-                </div>
-            `;
-
-        } catch (error) {
-            // **CAPTURA DE ERRO**
-            const errorMessage = error.message || error.details || "Erro genérico.";
-            
-            mainContent.innerHTML = `
-                <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS</p>
-                    <p class="text-sm text-red-600">
-                        A ambiguidade de JOIN foi corrigida! Se o erro persistir, ele está estritamente relacionado à **Row Level Security (RLS)** das tabelas \`appointments\` ou \`profiles\`.
-                        <br><br>
-                        Detalhe do Erro: <span class="font-mono text-xs block mt-1 p-2 bg-red-100 rounded">${errorMessage}</span>
-                    </p>
-                    <button onclick="handleLogout()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150 mt-3">
-                        Sair e Tentar Novamente
-                    </button>
-                </div>
-            `;
-        }
+      box.innerHTML = `
+        <div class="p-6 bg-white shadow rounded-xl">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">Perfis (${profiles.length})</h2>
+          <ul class="space-y-3">
+            ${profiles
+              .map(
+                (p) => `
+              <li class="p-3 bg-gray-50 border rounded-lg">
+                <b>${p.full_name || "Sem nome"}</b> — ${p.email} 
+                <span class="text-purple-600">(${p.role})</span>
+              </li>
+            `
+              )
+              .join("")}
+          </ul>
+        </div>
+      `;
+    } catch (e) {
+      box.innerHTML = `<p class="text-red-500">Erro: ${e.message}</p>`;
     }
+    return;
+  }
+
+  // -------- AGENDAMENTOS ----------
+  if (currentAdminTab === "appointments") {
+    try {
+      const apps = await loadAppointments();
+
+      box.innerHTML = `
+        <div class="p-6 bg-white shadow rounded-xl">
+          <h2 class="text-2xl font-bold mb-6 text-gray-800">Agendamentos (${apps.length})</h2>
+          <ul class="space-y-4">
+            ${apps
+              .map((a) => {
+                const patient = a.patient;
+                const psy = a.psychologist;
+
+                return `
+                <li class="p-4 bg-indigo-50 border rounded-lg">
+                  <div><b>ID:</b> ${a.id}</div>
+                  <div><b>Data:</b> ${new Date(a.date || a.created_at).toLocaleString(
+                    "pt-BR"
+                  )}</div>
+                  <div><b>Paciente:</b> ${patient?.full_name || "N/D"} (${patient?.email || "-"})</div>
+                  <div><b>Psicólogo:</b> ${psy?.full_name || "N/D"} (${psy?.email || "-"})</div>
+                </li>
+              `;
+              })
+              .join("")}
+          </ul>
+        </div>
+      `;
+    } catch (e) {
+      box.innerHTML = `<p class="text-red-500">ERRO: ${e.message}</p>`;
+    }
+  }
 }
 
-
 // =============================================================
-// 6. FUNÇÃO MESTRE DE RENDERIZAÇÃO
+// 7. RENDERIZAÇÃO PRINCIPAL
 // =============================================================
-
-/**
- * Função principal que decide qual página renderizar.
- */
 function render() {
-    const app = document.getElementById("app");
-    
-    if (currentPage === "login") {
-        app.innerHTML = renderLogin();
-        return;
-    }
+  const app = document.getElementById("app");
 
-    if (currentPage === "admin") {
-        // 1. Renderiza o esqueleto (shell) da página Admin
-        app.innerHTML = renderAdminShell();
-        
-        // 2. Chama a função assíncrona para carregar o conteúdo da aba
-        renderAdminContent();
-        return;
-    }
+  if (!app) return alert("Elemento #app não encontrado!");
 
-    app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
+  if (currentPage === "login") {
+    app.innerHTML = renderLogin();
+    return;
+  }
+
+  if (currentPage === "admin") {
+    app.innerHTML = renderAdminShell();
+    renderAdminContent();
+    return;
+  }
+
+  app.innerHTML = "<p>Página não encontrada.</p>";
 }
 
-// =============================================================
-// 7. INICIALIZAÇÃO
-// =============================================================
-// Monitora o estado de autenticação e renderiza a página correta.
+// Autenticação automática
 supabaseClient.auth.onAuthStateChange((event, session) => {
-    console.log("Evento de Autenticação:", event); 
-    currentAuthSession = session;
-    
-    if (session) {
-        currentPage = "admin";
-    } else {
-        currentPage = "login";
-    }
-    render();
+  console.log("Auth Event:", event);
+  currentAuthSession = session;
+  currentPage = session ? "admin" : "login";
+  render();
 });
 
-// A função de renderização inicial é chamada pela mudança de estado de autenticação.
-if (!currentAuthSession) {
-    render();
-}
+// Inicializa
+render();
