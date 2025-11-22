@@ -9,7 +9,6 @@
 // ============================================================
 
 // **IMPORTANTE**: Chaves Supabase do seu projeto
-// MANTENHA A CHAVE ANÔNIMA AQUI - ELA PRECISA ESTAR CORRETA
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
@@ -17,7 +16,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 if (!supabaseClient) {
-    console.error("ERRO: O cliente Supabase não pôde ser inicializado.");
+    console.error("ERRO: O cliente Supabase não pôde ser inicializado. Verifique a chave ou o link CDN no index.html.");
 } else {
     console.log("Supabase inicializado com sucesso.");
 }
@@ -216,6 +215,7 @@ async function getDashboardOverviewHTML() {
         safeCount('appointments')
     ]);
 
+    // O RLS deve ter sido resolvido, então só verificamos erros de tabela.
     if (profilesResult.error) throw profilesResult.error;
     
     const profiles = profilesResult.data || [];
@@ -353,6 +353,7 @@ async function renderAdminContent() {
                 contentHTML = await getPatientsListHTML();
                 break;
             default:
+                // CORRIGIDO: Agora usa a palavra correta "desconhecida"
                 contentHTML = "<p class='p-8 text-center text-gray-500'>Aba de gestão desconhecida.</p>";
         }
 
@@ -363,7 +364,8 @@ async function renderAdminContent() {
         
         let errorMessage = error.message;
         let suggestion = `
-            <strong>Sugestão:</strong> Para solucionar, você precisa executar o script SQL no Supabase para criar políticas RLS que permitam a leitura para usuários anônimos e autenticados.
+            <strong>Sugestão:</strong> Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem
+            e se as políticas RLS permitem a leitura (select) para a role <code>anon</code>.
         `;
 
         // 42P01: Tabela/coluna não existe
@@ -378,9 +380,8 @@ async function renderAdminContent() {
         else if (error.code === '42501' || (error.message && error.message.includes('permission denied'))) {
             errorMessage = "Erro de permissão (RLS). O acesso anônimo está bloqueado.";
             suggestion = `
-                Verifique se o <strong>Row Level Security (RLS)</strong> está ativado e se você criou as políticas
-                de <code>SELECT</code> (leitura) para as roles <code>anon</code> e <code>authenticated</code>
-                nas tabelas <code>profiles</code> e <code>appointments</code>.
+                O erro <code>42501</code> confirma que as políticas RLS não estão permitindo a leitura. 
+                Certifique-se de ter rodado o script de RLS corretamente no SQL Editor.
             `;
         }
         // PGRST301: Erro genérico do PostgREST, muitas vezes RLS
@@ -429,13 +430,14 @@ function render() {
         return;
     }
 
+    // Corrigido: Agora usa a palavra correta "desconhecida"
     app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
 }
 
-// Inicialização: Chama a função render() assim que o script é carregado
-// Adicionada aqui para garantir que o painel seja exibido após o login simulado
+// ============================================================
+// 7. INICIALIZAÇÃO
+// ============================================================
+// A função de renderização deve ser chamada após o script carregar.
 window.onload = function() {
     render();
-}esconhecida.</p>";
 }
-
