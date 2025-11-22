@@ -385,3 +385,8 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
 
 // Start
 render();
+
+
+// Start
+render();
+
