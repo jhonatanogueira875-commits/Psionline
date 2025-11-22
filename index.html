@@ -4,59 +4,59 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Psionline - Painel Admin</title>
-    
-    <!-- Importando Tailwind CSS (Aesthetic is crucial) -->
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
+    <!-- Supabase Client Library (DEVE SER O PRIMEIRO SCRIPT JS) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Estilos customizados para o efeito 'glass' -->
     <style>
-        /* Estilização para o efeito de vidro/neblina no login */
         .glass {
-            background: rgba(255, 255, 255, 0.2);
+            /* Adiciona um desfoque ao fundo para o efeito de vidro */
             backdrop-filter: blur(10px);
+            background-color: rgba(255, 255, 255, 0.7);
+            /* Garante que o fundo não seja totalmente branco */
         }
-        .transition-all { transition-duration: 300ms; }
+        .font-sans {
+            font-family: 'Inter', sans-serif;
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
-
-    <!-- Container Principal da Aplicação -->
     <div id="app">
-        <!-- O conteúdo será preenchido pelo JavaScript (função render) -->
-        <div class="flex justify-center items-center h-screen text-gray-500">
-            Carregando sistema...
+        <!-- Conteúdo inicial, substituído pela função render() -->
+        <div class="flex justify-center items-center h-screen">
+            <p class="text-xl text-gray-500">Iniciando aplicação...</p>
         </div>
     </div>
 
     <!-- 
-        ================================================================
-        CARREGAMENTO DOS SCRIPTS EXTERNOS (ORDEM É IMPORTANTE)
-        ================================================================
+        Scripts Customizados: 
+        1. auth.js (Define 'supabaseClient', 'render', 'navigate')
+        2. database.js (Define 'renderAdminContent', que é chamada por 'render') 
     -->
-    
-    <!-- 1. Importa a biblioteca oficial do Supabase -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-    <!-- 2. Carrega as configurações do Supabase e funções de Auth e Navegação -->
     <script src="auth.js"></script>
-
-    <!-- 3. Carrega as funções de Database/CRUD e o renderizador de conteúdo Admin -->
     <script src="database.js"></script>
-
-    <!-- 4. Script para iniciar a aplicação ao carregar a página -->
     <script>
+        // Inicia a aplicação após o carregamento completo do DOM e dos scripts
         document.addEventListener('DOMContentLoaded', () => {
-            // A função render() está definida em auth.js e inicia a aplicação na página 'login'.
             if (typeof render === 'function') {
                 render();
             } else {
-                console.error("A função 'render' não foi definida em auth.js.");
-                document.getElementById('app').innerHTML = "<p class='p-10 text-center text-red-500'>Erro crítico de inicialização: `render` ausente.</p>";
+                console.error("ERRO CRÍTICO: A função 'render' não foi carregada. Verifique auth.js.");
+                // Mensagem de erro visível na tela
+                document.getElementById('app').innerHTML = `
+                    <div class="flex justify-center items-center h-screen">
+                        <div class="text-center p-8 text-red-600 bg-red-50 border border-red-300 rounded-lg shadow-lg">
+                            <p class="font-bold mb-2">Falha Crítica na Inicialização</p>
+                            <p class="text-sm">Verifique o console do navegador e os arquivos auth.js e database.js.</p>
+                        </div>
+                    </div>
+                `;
             }
         });
     </script>
 </body>
 </html>
-            render();
         }
 
         function changeAdminTab(tab) {
@@ -387,3 +387,4 @@
 </body>
 
 </html>
+
