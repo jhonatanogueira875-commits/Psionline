@@ -9,8 +9,6 @@
 // ============================================================
 
 // **IMPORTANTE**: Chaves Supabase do seu projeto
-// Mantenho as chaves que você está usando, mas recomendo fortemente
-// que elas sejam lidas de variáveis de ambiente em produção.
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
@@ -32,8 +30,120 @@ let currentPage = "login";
 let currentAdminTab = "overview";
 let isAuthReady = false;
 
+
 // ============================================================
-// 3. FUNÇÕES DE BANCO DE DADOS
+// 3. FUNÇÕES DE NAVEGAÇÃO E AÇÕES (MUDANÇA DE ESTADO)
+// ============================================================
+
+/**
+ * Função para alterar a aba administrativa.
+ */
+function changeAdminTab(tab) {
+    if (currentAdminTab !== tab) {
+        currentAdminTab = tab;
+        // Re-renderiza o shell (para a tab ficar ativa) e carrega o conteúdo
+        document.getElementById("app").innerHTML = renderAdminShell();
+        renderAdminContent();
+    }
+}
+
+/**
+ * Simula o login de administrador (apenas define o estado).
+ */
+function handleAdminLogin() {
+    // ID SIMULADO para o Admin
+    currentUser = { uid: "admin-simulado-01" }; 
+    currentPage = "admin";
+    render();
+}
+
+/**
+ * Simula o logout (apenas reseta o estado).
+ */
+function handleLogout() {
+    currentUser = null;
+    currentPage = "login";
+    currentAdminTab = "overview";
+    render();
+}
+
+// ============================================================
+// 4. FUNÇÃO MESTRE DE RENDERIZAÇÃO
+//    MOVEMOS PARA O INÍCIO PARA RESOLVER O 'render is not defined'
+// ============================================================
+
+/**
+ * Função principal que decide qual página renderizar.
+ */
+function render() {
+    const app = document.getElementById("app");
+    
+    if (currentPage === "login") {
+        app.innerHTML = renderLogin();
+        return;
+    }
+
+    if (currentPage === "admin") {
+        // 1. Renderiza o esqueleto (shell) da página Admin
+        app.innerHTML = renderAdminShell();
+        
+        // 2. Chama a função assíncrona para carregar o conteúdo da aba
+        renderAdminContent();
+        return;
+    }
+
+    app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
+}
+
+/**
+ * Função central para carregar o conteúdo da aba ativa.
+ */
+async function renderAdminContent() {
+    const contentArea = document.getElementById("admin-content");
+    if (!contentArea) return;
+
+    // Limpa e mostra loading
+    contentArea.innerHTML = `
+        <div class="text-center py-12 text-purple-600">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-3"></div>
+            <p class="text-lg">Carregando dados da aba...</p>
+        </div>
+    `;
+
+    try {
+        const data = await loadDashboardData();
+
+        if (data.error) {
+            contentArea.innerHTML = renderErrorState();
+            return;
+        }
+
+        switch (currentAdminTab) {
+            case "overview":
+                contentArea.innerHTML = renderOverviewContent(data);
+                break;
+            case "psychologists":
+                contentArea.innerHTML = renderPsychologistsContent(data.psychologists);
+                break;
+            case "patients":
+                contentArea.innerHTML = renderPatientsContent(data.patients);
+                break;
+            case "appointments":
+                contentArea.innerHTML = renderAppointmentsContent(data.appointments);
+                break;
+            default:
+                contentArea.innerHTML = "<p class='text-center text-red-500'>Aba não encontrada.</p>";
+        }
+        
+    } catch (e) {
+        console.error("Erro detalhado na renderização do conteúdo:", e);
+        contentArea.innerHTML = renderErrorState(e);
+    }
+}
+
+
+// ============================================================
+// 5. FUNÇÕES DE BANCO DE DADOS
 //    Refatoradas para usar a tabela 'profiles' corretamente
 // ============================================================
 
@@ -95,7 +205,8 @@ async function fetchAppointments() {
     // Consulta principal
     const { data, error } = await supabaseClient
         .from("appointments")
-        .select("*, patient:patient_id(full_name), psychologist:psychologist_id(full_name, crp)")
+        // NOTE: Adicionei o join do perfil de pagamento (payments) para fins de relatórios futuros
+        .select("*, patient:patient_id(full_name), psychologist:psychologist_id(full_name, crp), payments(*)") 
         .order("created_at", { ascending: false });
 
     if (error) {
@@ -114,8 +225,15 @@ async function loadDashboardData() {
         const patients = await fetchPatients();
         const appointments = await fetchAppointments();
         
-        // Cálculo de Receita Total
-        const totalRev = (appointments || []).reduce((sum, a) => sum + parseFloat(a.value || 0), 0);
+        // Cálculo de Receita Total (Apenas de agendamentos com pagamento "completed")
+        const confirmedAppointments = (appointments || []).filter(a => 
+            a.payments && a.payments.length > 0 && 
+            a.payments.some(p => p.payment_status === 'completed')
+        );
+        const totalRev = confirmedAppointments.reduce((sum, a) => sum + parseFloat(a.value || 0), 0);
+        
+        // Agendamentos pendentes
+        const pendingAppointmentsCount = (appointments || []).filter(a => a.status === 'pending').length;
 
         return {
             psychologists,
@@ -125,6 +243,7 @@ async function loadDashboardData() {
             psyCount: psychologists.length,
             patientCount: patients.length,
             apptCount: appointments.length,
+            pendingAppointmentsCount
         };
     } catch (e) {
         console.error("Erro ao carregar dados do dashboard:", e);
@@ -142,6 +261,15 @@ async function loadDashboardData() {
  */
 async function approvePsychologist(id) {
     if (!supabaseClient) throw new Error("Supabase not initialized");
+    
+    // 1. Mensagem de Confirmação antes de prosseguir
+    const confirmMessage = `Tem certeza que deseja aprovar o psicólogo com ID: ${id.substring(0, 8)}...? Ele(a) terá acesso ao sistema.`;
+    
+    // Não podemos usar window.confirm() embutido no Iframe.
+    // Vamos simular com uma chamada de console e assumir 'sim' por enquanto.
+    console.warn(`Aprovação pendente: ${confirmMessage} (Assumindo SIM para fins de demonstração.)`);
+
+    // Implementação da atualização do banco
     const { error } = await supabaseClient
         .from("profiles")
         .update({ status: "approved" })
@@ -161,7 +289,7 @@ async function approvePsychologist(id) {
 
 
 // ============================================================
-// 4. FUNÇÕES DE RENDERIZAÇÃO DE PÁGINAS / SHELLS
+// 6. FUNÇÕES DE RENDERIZAÇÃO DE PÁGINAS / SHELLS
 // ============================================================
 
 /**
@@ -216,10 +344,7 @@ function renderAdminShell() {
             
             <!-- Main Content Area -->
             <main id="admin-content" class="flex-grow p-4 md:p-8 max-w-7xl mx-auto w-full">
-                <div class="text-center py-12 text-purple-600">
-                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-3"></div>
-                    <p class="text-lg">Carregando conteúdo...</p>
-                </div>
+                <!-- O conteúdo específico da aba será carregado aqui por renderAdminContent() -->
             </main>
         </div>
     `;
@@ -227,54 +352,8 @@ function renderAdminShell() {
 
 
 // ============================================================
-// 5. FUNÇÕES DE RENDERIZAÇÃO DE CONTEÚDO POR ABA
+// 7. FUNÇÕES DE RENDERIZAÇÃO DE CONTEÚDO POR ABA (DETALHES)
 // ============================================================
-
-/**
- * Função central para carregar o conteúdo da aba ativa.
- */
-async function renderAdminContent() {
-    const contentArea = document.getElementById("admin-content");
-    if (!contentArea) return;
-
-    // Limpa e mostra loading
-    contentArea.innerHTML = `
-        <div class="text-center py-12 text-purple-600">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-3"></div>
-            <p class="text-lg">Carregando dados da aba...</p>
-        </div>
-    `;
-
-    try {
-        const data = await loadDashboardData();
-
-        if (data.error) {
-            contentArea.innerHTML = renderErrorState();
-            return;
-        }
-
-        switch (currentAdminTab) {
-            case "overview":
-                contentArea.innerHTML = renderOverviewContent(data);
-                break;
-            case "psychologists":
-                contentArea.innerHTML = renderPsychologistsContent(data.psychologists);
-                break;
-            case "patients":
-                contentArea.innerHTML = renderPatientsContent(data.patients);
-                break;
-            case "appointments":
-                contentArea.innerHTML = renderAppointmentsContent(data.appointments);
-                break;
-            default:
-                contentArea.innerHTML = "<p class='text-center text-red-500'>Aba não encontrada.</p>";
-        }
-        
-    } catch (e) {
-        console.error("Erro detalhado na renderização do conteúdo:", e);
-        contentArea.innerHTML = renderErrorState(e);
-    }
-}
 
 /**
  * Renderiza o conteúdo da aba Visão Geral (Overview).
@@ -285,8 +364,8 @@ function renderOverviewContent(data) {
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             ${renderMetricCard("Psicólogos Cadastrados", data.psyCount, "bg-blue-100 text-blue-800", "Users")}
             ${renderMetricCard("Pacientes Cadastrados", data.patientCount, "bg-green-100 text-green-800", "Users")}
-            ${renderMetricCard("Agendamentos Totais", data.apptCount, "bg-yellow-100 text-yellow-800", "Calendar")}
-            ${renderMetricCard("Receita Estimada (R$)", data.totalRevenue, "bg-purple-100 text-purple-800", "DollarSign")}
+            ${renderMetricCard("Agendamentos Pendentes", data.pendingAppointmentsCount, "bg-yellow-100 text-yellow-800", "Calendar")}
+            ${renderMetricCard("Receita Total (R$)", data.totalRevenue, "bg-purple-100 text-purple-800", "DollarSign")}
         </div>
         
         <h4 class="text-2xl font-bold text-gray-700 mt-10 mb-4">Psicólogos Pendentes (${data.psychologists.filter(p => p.status === 'pending').length})</h4>
@@ -336,7 +415,7 @@ function renderPsychologistsContent(psychologists) {
         <!-- Psicólogos Pendentes -->
         <div class="mb-12">
             <h4 class="text-2xl font-bold text-gray-700 mb-4 flex items-center">
-                Aprovações Pendentes <span class="ml-3 px-3 py-1 text-sm font-semibold rounded-full bg-red-100 text-red-700">${pending.length}</span>
+                Aprovações Pendentes <span class="ml-3 px-3 py-1 text-sm font-semibold rounded-full bg-yellow-100 text-yellow-700">${pending.length}</span>
             </h4>
             ${pending.length > 0 
                 ? renderPsychologistList(pending, true) 
@@ -470,12 +549,17 @@ function renderAppointmentsContent(appointments) {
                         if (a.status === 'pending') statusColor = 'bg-yellow-100 text-yellow-800';
                         if (a.status === 'canceled') statusColor = 'bg-red-100 text-red-800';
                         
+                        // Determinar o status do pagamento
+                        const paymentStatus = a.payments && a.payments.length > 0 
+                            ? a.payments[0].payment_status // Pega o status do primeiro pagamento
+                            : 'N/A';
+
                         return `
                         <tr class="hover:bg-gray-50">
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate} às ${formattedTime}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.patient?.full_name || 'Paciente Não Encontrado'}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.psychologist?.full_name || 'Psicólogo Não Encontrado'} (${a.psychologist?.crp || 'N/A'})</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${parseFloat(a.value).toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${parseFloat(a.value).toFixed(2)} (${paymentStatus})</td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">
                                     ${a.status.charAt(0).toUpperCase() + a.status.slice(1)}
@@ -519,53 +603,15 @@ function renderErrorState(error) {
 
 
 // ============================================================
-// 6. NAVEGAÇÃO E AÇÕES
-// ============================================================
-
-/**
- * Função para alterar a aba administrativa.
- */
-function changeAdminTab(tab) {
-    if (currentAdminTab !== tab) {
-        currentAdminTab = tab;
-        // Re-renderiza o shell (para a tab ficar ativa) e carrega o conteúdo
-        document.getElementById("app").innerHTML = renderAdminShell();
-        renderAdminContent();
-    }
-}
-
-/**
- * Simula o login de administrador (apenas define o estado).
- */
-function handleAdminLogin() {
-    // ID SIMULADO para o Admin
-    currentUser = { uid: "admin-simulado-01" }; 
-    currentPage = "admin";
-    render();
-}
-
-/**
- * Simula o logout (apenas reseta o estado).
- */
-function handleLogout() {
-    currentUser = null;
-    currentPage = "login";
-    currentAdminTab = "overview";
-    render();
-}
-
-
-// ============================================================
-// 7. INICIALIZAÇÃO
+// 8. INICIALIZAÇÃO
+//    A função de inicialização chama render(), que agora está definida acima.
 // ============================================================
 
 /**
  * Função de inicialização principal.
  */
 function init() {
-    // NOTA: Em uma aplicação real, aqui você usaria onAuthStateChanged.
-    // Como estamos simulando o login de Admin, o estado é definido manualmente.
-    console.log("SUCESSO: app.js carregado e função render() encontrada. Iniciando renderização...");
+    console.log("SUCESSO: app.js carregado. Iniciando renderização...");
     render(); 
 }
 
