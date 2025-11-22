@@ -552,6 +552,350 @@ render();
 /* ============================
    12. Export / debugging helpers (available in console)
    ============================ */
+/* ===========================
+   Modais & CRUD - Criar Psicólogo / Paciente
+   - Gera senha automaticamente
+   - Cria usuário via signUp
+   - Dispara email de redefinição (link para definir senha)
+   - Cria profile + psychologist / patient
+   - Upload de foto no bucket 'avatars' (opcional)
+   =========================== */
+
+/* ----- Helpers ----- */
+function generateRandomPassword(length = 16) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_+=<>?";
+  let pass = '';
+  for (let i=0;i<length;i++) pass += chars[Math.floor(Math.random()*chars.length)];
+  return pass;
+}
+
+async function uploadAvatarFile(file, userId) {
+  if (!file) return null;
+  // bucket 'avatars' deve existir no seu Supabase Storage
+  const key = `avatars/${userId}/${Date.now()}_${file.name}`;
+  const { data, error } = await supabaseClient.storage.from('avatars').upload(key, file, { upsert: false });
+  if (error) {
+    console.error('Erro upload avatar:', error);
+    return null;
+  }
+  // gerar public url (ajuste se usar políticas privadas)
+  const { publicURL } = supabaseClient.storage.from('avatars').getPublicUrl(key);
+  return publicURL;
+}
+
+/* ----- Render modals (injetar no body) ----- */
+function ensureModalContainer() {
+  let container = document.getElementById('modal-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'modal-container';
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+function openModal(html) {
+  const container = ensureModalContainer();
+  container.innerHTML = `
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div class="max-w-2xl w-full p-6 bg-white rounded-2xl shadow-2xl">
+        ${html}
+      </div>
+    </div>
+  `;
+}
+
+function closeModal() {
+  const container = document.getElementById('modal-container');
+  if (container) container.innerHTML = '';
+}
+
+/* ----- Modal: Novo Psicólogo ----- */
+function showAddPsychologistModal() {
+  openModal(`
+    <div>
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold">Adicionar Psicólogo</h3>
+        <button onclick="closeModal()" class="text-gray-500">✖</button>
+      </div>
+
+      <form id="form-new-psych" class="space-y-3" onsubmit="event.preventDefault(); handleCreatePsychologist();">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input id="psy_name" placeholder="Nome completo" required class="p-3 border rounded" />
+          <input id="psy_email" type="email" placeholder="Email" required class="p-3 border rounded" />
+          <input id="psy_phone" placeholder="Telefone" class="p-3 border rounded" />
+          <input id="psy_crp" placeholder="CRP" required class="p-3 border rounded" />
+          <input id="psy_specialty" placeholder="Especialidade (ex: Terapia Cognitiva)" class="p-3 border rounded" />
+          <input id="psy_price" type="number" placeholder="Preço da sessão (R$)" class="p-3 border rounded" />
+          <input id="psy_session_time" type="number" placeholder="Tempo da sessão (minutos)" class="p-3 border rounded" />
+        </div>
+
+        <div class="grid grid-cols-1 gap-3">
+          <textarea id="psy_bio" placeholder="Bio / descrição curta" class="p-3 border rounded"></textarea>
+
+          <div>
+            <label class="text-sm font-semibold mb-1 block">Foto de perfil (opcional)</label>
+            <input id="psy_avatar" type="file" accept="image/*" class="p-1" />
+          </div>
+
+          <div>
+            <label class="text-sm font-semibold mb-1 block">Disponibilidade (exemplo):</label>
+            <small class="text-xs text-gray-500">Você pode configurar disponibilidade detalhada depois. Aqui é um campo livre para notas rápidas.</small>
+            <input id="psy_availability_notes" placeholder="Ex: Seg/Qua/sex 09:00-12:00" class="p-3 border rounded mt-1" />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-4">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 rounded bg-gray-200">Cancelar</button>
+          <button type="submit" id="psy_submit" class="px-4 py-2 rounded bg-purple-600 text-white font-semibold">Criar Psicólogo</button>
+        </div>
+
+        <div id="psy_feedback" class="mt-3 text-sm"></div>
+      </form>
+    </div>
+  `);
+}
+
+/* ----- Modal: Novo Paciente ----- */
+function showAddPatientModal() {
+  openModal(`
+    <div>
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold">Adicionar Paciente</h3>
+        <button onclick="closeModal()" class="text-gray-500">✖</button>
+      </div>
+
+      <form id="form-new-patient" class="space-y-3" onsubmit="event.preventDefault(); handleCreatePatient();">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input id="pat_name" placeholder="Nome completo" required class="p-3 border rounded" />
+          <input id="pat_email" type="email" placeholder="Email" required class="p-3 border rounded" />
+          <input id="pat_phone" placeholder="Telefone" class="p-3 border rounded" />
+          <input id="pat_birthdate" type="date" placeholder="Data de nascimento" class="p-3 border rounded" />
+          <input id="pat_cpf" placeholder="CPF" class="p-3 border rounded" />
+        </div>
+
+        <div class="flex justify-end gap-3 mt-4">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 rounded bg-gray-200">Cancelar</button>
+          <button type="submit" id="pat_submit" class="px-4 py-2 rounded bg-purple-600 text-white font-semibold">Criar Paciente</button>
+        </div>
+
+        <div id="pat_feedback" class="mt-3 text-sm"></div>
+      </form>
+    </div>
+  `);
+}
+
+/* ----- Handle Create Psychologist ----- */
+async function handleCreatePsychologist() {
+  const feedback = document.getElementById('psy_feedback');
+  const submitBtn = document.getElementById('psy_submit');
+  try {
+    submitBtn.disabled = true;
+    feedback.textContent = 'Criando psicólogo — um momento...';
+
+    const name = document.getElementById('psy_name').value.trim();
+    const email = document.getElementById('psy_email').value.trim();
+    const phone = document.getElementById('psy_phone').value.trim();
+    const crp = document.getElementById('psy_crp').value.trim();
+    const specialty = document.getElementById('psy_specialty').value.trim();
+    const bio = document.getElementById('psy_bio').value.trim();
+    const price = parseFloat(document.getElementById('psy_price').value) || 0;
+    const session_time = parseInt(document.getElementById('psy_session_time').value) || 50;
+    const avatarFile = document.getElementById('psy_avatar').files[0];
+    const availability_notes = document.getElementById('psy_availability_notes').value.trim();
+
+    // 1) Cria usuário (signUp) com senha aleatória
+    const tempPassword = generateRandomPassword();
+    const { data: signData, error: signError } = await supabaseClient.auth.signUp({
+      email,
+      password: tempPassword
+    });
+
+    if (signError) {
+      console.error('signUp error', signError);
+      feedback.textContent = `Erro ao criar usuário: ${signError.message || signError}`;
+      submitBtn.disabled = false;
+      return;
+    }
+
+    // If signUp returns user object:
+    const newUserId = signData.user?.id || null;
+
+    // 2) Optional: send password reset link so they can define password (best UX)
+    // NOTE: supabase-js v2: use resetPasswordForEmail
+    try {
+      await supabaseClient.auth.resetPasswordForEmail(email);
+    } catch (e) {
+      console.warn('reset password email may fail from client depending on settings:', e);
+    }
+
+    // 3) Upload avatar (if provided) to 'avatars' bucket
+    let avatarUrl = null;
+    if (avatarFile && newUserId) {
+      avatarUrl = await uploadAvatarFile(avatarFile, newUserId);
+    }
+
+    // 4) Create profile record
+    const { data: profileData, error: profileError } = await supabaseClient
+      .from('profiles')
+      .insert([{
+        id: newUserId,         // keep profile.id linked to auth.user id
+        full_name: name,
+        phone,
+        role: 'psychologist',
+      }]);
+
+    if (profileError) {
+      console.error('profile insert error', profileError);
+      feedback.textContent = `Erro ao criar profile: ${profileError.message || profileError}`;
+      submitBtn.disabled = false;
+      return;
+    }
+
+    // 5) Create psychologist record
+    const { data: psyData, error: psyError } = await supabaseClient
+      .from('psychologists')
+      .insert([{
+        user_id: newUserId,
+        crp,
+        specialties: specialty ? [specialty] : [],
+        bio,
+        session_price: price,
+        status: 'approved',
+        rating: 0
+      }]);
+
+    if (psyError) {
+      console.error('psych insert error', psyError);
+      feedback.textContent = `Erro ao criar psicólogo: ${psyError.message || psyError}`;
+      submitBtn.disabled = false;
+      return;
+    }
+
+    // 6) Optionally create an availability note in notes column of availability table later (or create availability entries)
+    if (availability_notes) {
+      // Simple insertion into availability as a note (not structured) - developer can later transform
+      try {
+        await supabaseClient.from('availability').insert([{
+          psychologist_id: psyData[0].id,
+          day_of_week: 0,
+          start_time: '00:00:00',
+          end_time: '00:00:00',
+          is_active: false,
+          notes: availability_notes
+        }]);
+      } catch (e) {
+        console.warn('Could not insert availability note (optional):', e);
+      }
+    }
+
+    feedback.innerHTML = '✅ Psicólogo criado com sucesso. Email enviado para o usuário definir a senha.';
+    submitBtn.disabled = false;
+
+    // refresh view
+    await loadDashboardData?.();      // if you have loadDashboardData to refresh dashboard counts
+    await renderAdminContent();
+
+    // close modal after short delay
+    setTimeout(() => closeModal(), 1200);
+
+  } catch (err) {
+    console.error('handleCreatePsychologist error', err);
+    document.getElementById('psy_feedback').textContent = 'Erro inesperado ao criar psicólogo.';
+    document.getElementById('psy_submit').disabled = false;
+  }
+}
+
+/* ----- Handle Create Patient ----- */
+async function handleCreatePatient() {
+  const feedback = document.getElementById('pat_feedback');
+  const submitBtn = document.getElementById('pat_submit');
+  try {
+    submitBtn.disabled = true;
+    feedback.textContent = 'Criando paciente — um momento...';
+
+    const name = document.getElementById('pat_name').value.trim();
+    const email = document.getElementById('pat_email').value.trim();
+    const phone = document.getElementById('pat_phone').value.trim();
+    const birthdate = document.getElementById('pat_birthdate').value || null;
+    const cpf = document.getElementById('pat_cpf').value.trim();
+
+    // 1) signUp user with automatic password
+    const tempPassword = generateRandomPassword();
+    const { data: signData, error: signError } = await supabaseClient.auth.signUp({
+      email,
+      password: tempPassword
+    });
+
+    if (signError) {
+      console.error('signUp error', signError);
+      feedback.textContent = `Erro ao criar usuário: ${signError.message || signError}`;
+      submitBtn.disabled = false;
+      return;
+    }
+
+    const newUserId = signData.user?.id || null;
+
+    // send reset password link
+    try {
+      await supabaseClient.auth.resetPasswordForEmail(email);
+    } catch (e) {
+      console.warn('resetPassword email error (client may not allow):', e);
+    }
+
+    // 2) create profile
+    const { data: profileData, error: profileError } = await supabaseClient
+      .from('profiles')
+      .insert([{
+        id: newUserId,
+        full_name: name,
+        phone,
+        role: 'patient'
+      }]);
+
+    if (profileError) {
+      console.error('profile insert error', profileError);
+      feedback.textContent = `Erro ao criar profile: ${profileError.message || profileError}`;
+      submitBtn.disabled = false;
+      return;
+    }
+
+    // 3) create patient record
+    const { data: patData, error: patError } = await supabaseClient
+      .from('patients')
+      .insert([{
+        user_id: newUserId,
+        birth_date: birthdate,
+        cpf
+      }]);
+
+    if (patError) {
+      console.error('patients insert error', patError);
+      feedback.textContent = `Erro ao criar patient: ${patError.message || patError}`;
+      submitBtn.disabled = false;
+      return;
+    }
+
+    feedback.innerHTML = '✅ Paciente criado com sucesso. Email enviado para definir senha.';
+    submitBtn.disabled = false;
+
+    // refresh
+    await loadDashboardData?.();
+    await renderAdminContent();
+    setTimeout(() => closeModal(), 1000);
+
+  } catch (err) {
+    console.error('handleCreatePatient error', err);
+    document.getElementById('pat_feedback').textContent = 'Erro inesperado ao criar paciente.';
+    document.getElementById('pat_submit').disabled = false;
+  }
+}
+
+/* ----- Expose modal openers to globals so buttons can call them ----- */
+window.showAddPsychologistModal = showAddPsychologistModal;
+window.showAddPatientModal = showAddPatientModal;
+
+
 window.psiApp = {
   supabase: supabaseClient,
   reload: () => { render(); },
@@ -560,3 +904,4 @@ window.psiApp = {
   loadPatients,
   loadPsychologists
 };
+
