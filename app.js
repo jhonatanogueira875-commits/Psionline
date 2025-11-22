@@ -1,7 +1,7 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  CORREÇÃO: Uso de sintaxe de JOIN explícito para resolver ambiguidade de Foreign Keys.
+  CORREÇÃO: Uso de sintaxe de JOIN explícito usando o nome da FK para resolver ambiguidade.
 */
 
 // =============================================================
@@ -90,17 +90,18 @@ async function loadProfiles() {
 
 /**
  * Carrega todos os agendamentos da tabela 'appointments'.
- * Usa JOIN explícito para obter o perfil do PACIENTE, evitando ambiguidade.
+ * Usa JOIN explícito para obter o perfil do PACIENTE, resolvendo a ambiguidade.
  */
 async function loadAppointments() {
-    // CORREÇÃO APLICADA AQUI: Usando profiles!appointments_patient_id_fkey1
+    // CORREÇÃO APLICADA: Usando o nome da Foreign Key no seletor para forçar a relação correta.
     const { data: appointments, error } = await supabaseClient
         .from('appointments')
-        // Traz as colunas de appointments, e o perfil do paciente via FK específica
+        // Seleciona as colunas de 'appointments' (*), e faz um join explícito para o perfil do paciente
+        // O nome da coluna retornada no objeto JSON será 'patient_profile'
         .select(`
             *, 
-            patient:profiles!appointments_patient_id_fkey1 (full_name, email) 
-            `);
+            patient_profile:profiles!appointments_patient_id_fkey1 (full_name, email)
+        `);
 
     if (error) {
         throw error;
@@ -213,17 +214,17 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">Sucesso! A ambiguidade de JOIN foi resolvida (Verifique os dados abaixo).</p>
+                    <p class="text-sm text-gray-500 mb-4">Sucesso! A ambiguidade de JOIN foi corrigida. Se houver RLS, o problema agora deve ser nas políticas.</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
                             ${appointments.map(a => {
-                                // Assume que o campo 'date' existe e o join com 'patient' funcionou
+                                // Assume que o campo 'date' existe e o join com 'patient_profile' funcionou
                                 const appointmentDate = new Date(a.date || a.created_at).toLocaleString('pt-BR');
-                                // Acessa o objeto aninhado 'patient' (novo nome do join)
-                                const patientName = a.patient?.full_name || 'Usuário Desconhecido';
-                                const patientEmail = a.patient?.email || 'N/A';
-                                // Exibe o ID do psicólogo, pois não fizemos join para ele (para simplificar)
+                                // AGORA ACESSAMOS O OBJETO PELO NOVO APELIDO 'patient_profile'
+                                const patientName = a.patient_profile?.full_name || 'Usuário Desconhecido';
+                                const patientEmail = a.patient_profile?.email || 'N/A';
+                                
                                 const psychologistId = a.psychologist_id || 'N/A'; 
 
                                 return `<li class="p-4 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
@@ -235,7 +236,7 @@ async function renderAdminContent() {
                                 </li>`;
                             }).join('')}
                         </ul>`
-                        : `<p class="text-gray-600 font-medium">Nenhum agendamento encontrado no banco de dados.</p>`
+                        : `<p class="text-gray-600 font-medium">Nenhum agendamento encontrado no banco de dados. (Verifique se há dados e se a RLS está permitindo a leitura.)</p>`
                     }
                 </div>
             `;
@@ -251,9 +252,9 @@ async function renderAdminContent() {
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
                     <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS (AGORA É QUASE CERTEZA QUE É RLS)</p>
                     <p class="text-sm text-red-600">
-                        O erro de ambiguidade de JOIN foi corrigido. Se este erro persistir, o problema é puramente na **Row Level Security (RLS)** das tabelas `appointments` ou `profiles`.
+                        O erro de ambiguidade de JOIN foi corrigido. Se este erro persistir, o problema é puramente na **Row Level Security (RLS)** das tabelas \`appointments\` ou \`profiles\`.
                         <br><br>
-                        **AÇÃO:** Verifique a política de RLS de `SELECT` nas tabelas `appointments` e `profiles` para garantir que um usuário autenticado possa ler os dados.
+                        **AÇÃO:** Verifique a política de RLS de \`SELECT\` nas tabelas \`appointments\` e \`profiles\` para garantir que um usuário autenticado possa ler os dados.
                         <br>
                         Detalhe do Erro: <span class="font-mono text-xs block mt-1 p-2 bg-red-100 rounded">${errorMessage}</span>
                     </p>
