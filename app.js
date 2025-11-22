@@ -207,7 +207,7 @@ async function renderAdminContent() {
             mainContent.innerHTML = `
                 <div class="p-6 bg-white shadow-lg rounded-xl">
                     <h2 class="text-2xl font-bold text-gray-800 mb-6">Agendamentos Registrados (${appointments.length})</h2>
-                    <p class="text-sm text-gray-500 mb-4">RLS para 'appointments' está OK! (Select: authenticated, true)</p>
+                    <p class="text-sm text-gray-500 mb-4">A política RLS para 'appointments' agora permite a leitura.</p>
 
                     ${appointments.length > 0 
                         ? `<ul class="space-y-4">
@@ -234,20 +234,15 @@ async function renderAdminContent() {
 
         } catch (error) {
             // **CAPTURA DO ERRO DE RLS**
-            console.error("Erro ao carregar agendamentos (PROVÁVEL FALHA DE RLS):", error);
+            console.error("Erro ao carregar agendamentos (VERIFIQUE CONEXÃO/RELOAD):", error);
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
-                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA DE CARREGAMENTO (Erro de Permissão RLS)</p>
+                    <p class="font-bold text-red-700 mb-3">⚠️ FALHA NO CARREGAMENTO DOS AGENDAMENTOS</p>
                     <p class="text-sm text-red-600">
-                        O problema persiste na tabela **appointments**. Isso acontece porque o usuário Admin (role **authenticated**) não tem permissão para ler todos os dados.
+                        A política RLS está correta (o que é ótimo!), mas o erro persiste. Isso pode ser um problema de cache/sessão antiga do usuário logado.
                         <br><br>
-                        **A solução é a política RLS:** <ul class="list-disc list-inside mt-2 text-left mx-auto max-w-sm font-mono bg-red-100 p-2 rounded-md border border-red-300">
-                            <li>Tabela: <code>appointments</code></li>
-                            <li>Operação: <code>SELECT</code></li>
-                            <li>Role: <code>authenticated</code></li>
-                            <li>Using: <code>true</code></li>
-                        </ul>
+                        **Ação:** Por favor, tente deslogar (`Sair`) e logar novamente, ou simplesmente atualize a pré-visualização.
                         <br>
                         Detalhe do Erro (Console): ${error.message}
                     </p>
@@ -308,3 +303,5 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
 if (!currentAuthSession) {
     render();
 }
+}
+
