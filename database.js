@@ -1,292 +1,176 @@
 /*
-  database.js
-  Simple database helpers that use supabaseClient from auth.js
-  These functions are intentionally simple and make extra requests
-  so they work with common Supabase schemas (profiles + content tables).
-
-  IMPORTANT: This file now contains the main rendering logic for the Admin Panel content.
-  It relies on global state (adminTab, authReady, supabaseClient) defined in auth.js.
+  auth.js
+  Supabase authentication helpers and core navigation logic.
+  **ATENÇÃO**: As chaves abaixo são as que você forneceu. Elas DEVEM estar corretas.
 */
 
+// **IMPORTANTE**: Chaves Supabase
+const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
+
+// inicializa o cliente (depende do <script src="@supabase/supabase-js@2"> no HTML)
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+if (!supabaseClient) console.warn("Aviso: O cliente Supabase não pôde ser inicializado.");
+
 // ============================================================
-// FUNÇÕES DE BUSCA DE DADOS (ABAS)
+// LÓGICA DE ESTADO E NAVEGAÇÃO
 // ============================================================
 
-async function fetchAllProfiles() {
-    if (!supabaseClient) throw new Error("Sistema não inicializado (supabaseClient ausente).");
-    const { data, error } = await supabaseClient.from('profiles').select('*');
-    if (error) throw error;
-    return data || [];
+let currentPage = "login"; // Página atual: 'login' ou 'admin'
+let adminTab = "dashboard"; // Aba atual do admin
+let authReady = !!supabaseClient; // Indica se o Supabase inicializou
+
+/**
+ * Altera a página atual e chama a renderização.
+ * @param {string} page - A página para onde navegar ('login' ou 'admin').
+ */
+function navigate(page) {
+    currentPage = page;
+    render();
 }
 
 /**
- * Funcao auxiliar para contar linhas, tratando falhas de forma segura.
- * @param {string} tableName - Nome da tabela.
- * @returns {number} O número de linhas, ou 0 em caso de erro.
+ * Altera a aba ativa do Painel Admin e chama a renderização.
+ * @param {string} tab - A aba para onde navegar ('dashboard', 'psychologists', 'patients').
  */
-async function safeCount(tableName) {
-    if (!supabaseClient) return 0;
-    try {
-        const { count, error } = await supabaseClient
-            .from(tableName)
-            .select('*', { count: 'exact', head: true });
+function changeAdminTab(tab) {
+    adminTab = tab;
+    render(); // A função render() chamará renderAdminContent() que usa a nova aba
+}
+
+// ============================================================
+// FUNÇÕES DE RENDERIZAÇÃO DE PÁGINAS (Esqueletos HTML)
+// ============================================================
+
+function renderLogin() {
+    return `
+        <div class="flex items-center justify-center min-h-screen px-4 bg-purple-600">
+            <div class="glass shadow-xl rounded-2xl p-8 max-w-md w-full bg-white bg-opacity-90 border border-gray-200">
+                <h2 class="text-3xl font-extrabold text-purple-700 text-center mb-6">Psionline Admin</h2>
+                <p class="text-center text-gray-500 mb-6">Acesso restrito ao painel de gestão.</p>
+                <input type="text" placeholder="Usuário Admin" id="admin-email"
+                    class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 transition duration-150">
+                <input type="password" placeholder="Senha" id="admin-password"
+                    class="w-full p-3 mb-6 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 transition duration-150">
+                <button onclick="simulateAdminLogin()"
+                    class="w-full bg-purple-600 text-white p-3 rounded-lg font-semibold shadow-lg hover:bg-purple-700 transition-all transform hover:scale-[1.01]">
+                    Entrar no Painel
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// Função de login simulada/temporária
+function simulateAdminLogin() {
+    // Por enquanto, apenas navega para o admin para vermos a dashboard.
+    // Em um ambiente real, faria uma chamada a signIn e checaria o perfil/role.
+    navigate('admin');
+}
+
+
+function renderAdminShell() {
+    const tabButtons = ['dashboard', 'psychologists', 'patients']
+        .map(tab => {
+            const labels = { 'dashboard': 'Visão Geral', 'psychologists': 'Psicólogos', 'patients': 'Pacientes' };
+            const isActive = adminTab === tab;
             
-        if (error) {
-             // Logs o erro para debug, mas retorna 0 para que a UI nao quebre.
-            console.warn(`Aviso: Nao foi possivel contar a tabela '${tableName}'. Pode nao existir ou RLS.`, error.message);
-            return 0;
-        }
-        return count || 0;
-    } catch (e) {
-        console.error(`Erro inesperado ao contar a tabela '${tableName}':`, e);
-        return 0;
-    }
-}
-
-
-async function getDashboardOverviewHTML() {
-    // Busca os dados necessários para o dashboard
-    const [profilesResult, totalAppointments] = await Promise.all([
-        // 1. Busca todos os perfis
-        supabaseClient.from('profiles').select('*'),
-        // 2. Chama a funcao segura de contagem
-        safeCount('appointments')
-    ]);
-
-    if (profilesResult.error) {
-         // Se a busca de perfis falhar (muito raro se a tabela profiles existe), lanca o erro.
-         throw profilesResult.error;
-    }
-    
-    const profiles = profilesResult.data || [];
-
-    const psychs = profiles.filter(p => p.role === 'psychologist').length;
-    const patients = profiles.filter(p => p.role === 'patient').length;
-    const pending = profiles.filter(p => p.role === 'psychologist' && p.status === 'pending').length;
+            return `
+            <button onclick="changeAdminTab('${tab}')"
+                class="px-5 py-2 rounded-lg font-semibold text-sm transition-all shadow-sm whitespace-nowrap
+                ${isActive
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'bg-white text-gray-600 hover:bg-purple-50 hover:text-purple-600'}">
+                ${labels[tab]}
+            </button>
+            `;
+        }).join('');
 
     return `
-        <h2 class="text-xl font-bold text-gray-800 mb-6 border-b pb-2">Visão Geral do Sistema</h2>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- Card Psicólogos -->
-            <div class="bg-blue-50 p-6 rounded-xl border border-blue-100 text-center shadow-sm">
-                <div class="text-blue-500 font-semibold mb-1">Total de Psicólogos</div>
-                <div class="text-3xl font-bold text-blue-700">${psychs}</div>
-            </div>
+        <div class="min-h-screen flex flex-col">
+            <!-- Cabeçalho -->
+            <header class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
+                <h1 class="text-xl font-bold text-gray-800">Painel Administrativo</h1>
+                <button onclick="navigate('login')" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all">
+                    Sair
+                </button>
+            </header>
 
-            <!-- Card Pendentes -->
-            <div class="bg-orange-50 p-6 rounded-xl border border-orange-100 text-center shadow-sm">
-                <div class="text-orange-500 font-semibold mb-1">Aguardando Aprovação</div>
-                <div class="text-3xl font-bold text-orange-700">${pending}</div>
-            </div>
+            <!-- Menu de Abas -->
+            <nav class="bg-gray-100 p-4 border-b border-gray-200 overflow-x-auto">
+                <div class="flex gap-4 max-w-7xl mx-auto">
+                    ${tabButtons}
+                </div>
+            </nav>
 
-            <!-- Card Pacientes -->
-            <div class="bg-green-50 p-6 rounded-xl border border-green-100 text-center shadow-sm">
-                <div class="text-green-500 font-semibold mb-1">Total de Pacientes</div>
-                <div class="text-3xl font-bold text-green-700">${patients}</div>
-            </div>
-
-            <!-- Card Consultas -->
-            <div class="bg-purple-50 p-6 rounded-xl border border-purple-100 text-center shadow-sm">
-                <div class="text-purple-500 font-semibold mb-1">Total de Sessões</div>
-                <div class="text-3xl font-bold text-purple-700">${totalAppointments}</div>
-            </div>
+            <!-- Conteúdo Principal -->
+            <main id="admin-main-content" class="flex-grow p-6 bg-gray-50">
+                <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6 min-h-[400px]">
+                    <!-- O conteúdo será preenchido por renderAdminContent() de database.js -->
+                    <div id="dynamic-content">
+                        <!-- Loader inicial -->
+                        <div class="flex justify-center items-center h-64">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
         </div>
     `;
 }
 
-async function getPsychologistsListHTML() {
-    const { data: psis, error } = await supabaseClient
-        .from('profiles').select('*').eq('role', 'psychologist').order('created_at', { ascending: false });
-    if (error) throw error;
+// ============================================================
+// FUNÇÃO MESTRE DE RENDERIZAÇÃO (Chamada no DOMContentLoaded)
+// ============================================================
 
-    if (!psis.length) return '<div class="p-8 text-center text-gray-500">Nenhum psicólogo encontrado.</div>';
+function render() {
+    const app = document.getElementById("app");
+    
+    if (currentPage === "login") {
+        app.innerHTML = renderLogin();
+        return;
+    }
 
-    const rows = psis.map(psi => {
-        const st = psi.status || 'pending'; 
-        const badges = { 'approved': 'bg-green-100 text-green-800', 'pending': 'bg-orange-100 text-orange-800', 'blocked': 'bg-red-100 text-red-800' };
-        const labels = { 'approved': 'Aprovado', 'pending': 'Pendente', 'blocked': 'Bloqueado' };
+    if (currentPage === "admin") {
+        // 1. Renderiza o esqueleto (shell) da página Admin
+        app.innerHTML = renderAdminShell();
         
-        return `
-            <tr class="border-b hover:bg-gray-50">
-                <td class="p-4"><div class="font-semibold">${psi.full_name || 'Sem Nome'}</div><div class="text-xs text-gray-500">${psi.email}</div></td>
-                <td class="p-4 text-sm">${psi.crp || 'N/A'}</td>
-                <td class="p-4"><span class="px-3 py-1 rounded-full text-xs font-bold ${badges[st]}">${labels[st]}</span></td>
-                <td class="p-4 flex gap-2">
-                    <button onclick="updateUserStatus('${psi.id}', 'approved')" class="p-2 text-green-600 hover:bg-green-50 rounded" title="Aprovar">✅</button>
-                    <button onclick="updateUserStatus('${psi.id}', 'blocked')" class="p-2 text-orange-600 hover:bg-orange-50 rounded" title="Bloquear">🚫</button>
-                    <button onclick="deleteUser('${psi.id}')" class="p-2 text-red-600 hover:bg-red-50 rounded" title="Excluir">🗑️</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-
-    return `
-        <h2 class="text-xl font-bold text-gray-800 mb-4">Gestão de Psicólogos (${psis.length})</h2>
-        <div class="overflow-x-auto border rounded-lg">
-            <table class="w-full text-left">
-                <thead class="bg-gray-50 text-xs uppercase text-gray-600 border-b">
-                    <tr><th class="p-4 font-semibold">Profissional</th><th class="p-4 font-semibold">CRP</th><th class="p-4 font-semibold">Status</th><th class="p-4 font-semibold">Ações</th></tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-    `;
-}
-
-async function getPatientsListHTML() {
-    const { data: patients, error } = await supabaseClient
-        .from('profiles').select('*').eq('role', 'patient').order('created_at', { ascending: false });
-    if (error) throw error;
-
-    if (!patients.length) return '<div class="p-8 text-center text-gray-500">Nenhum paciente encontrado.</div>';
-
-    const rows = patients.map(p => `
-        <tr class="border-b hover:bg-gray-50">
-            <td class="p-4"><div class="font-semibold">${p.full_name || 'Sem Nome'}</div><div class="text-xs text-gray-500">${p.email}</div></td>
-            <td class="p-4 text-gray-600">${p.phone || '-'}</td>
-            <td class="p-4">
-                <button onclick="deleteUser('${p.id}')" class="p-2 text-red-600 hover:bg-red-50 rounded" title="Excluir">🗑️</button>
-            </td>
-        </tr>
-    `).join('');
-
-    return `
-        <h2 class="text-xl font-bold text-gray-800 mb-4">Lista de Pacientes (${patients.length})</h2>
-        <div class="overflow-x-auto border rounded-lg">
-            <table class="w-full text-left">
-                <thead class="bg-gray-50 text-xs uppercase text-gray-600 border-b">
-                    <tr><th class="p-4 font-semibold">Paciente</th><th class="p-4 font-semibold">Telefone</th><th class="p-4 font-semibold">Ações</th></tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-    `;
-}
-
-// ============================================================
-// 5. CARREGAMENTO DE CONTEÚDO (Assíncrono)
-// A função mestre para carregar o conteúdo da aba
-// ============================================================
-async function renderAdminContent() {
-    const container = document.getElementById('admin-main-content')?.querySelector('#dynamic-content'); 
-    if (!container) return;
-
-    // Exibe o loader antes de carregar o novo conteúdo
-    container.innerHTML = `
-        <div class="flex justify-center items-center h-64" id="admin-content-loader">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-        </div>
-    `;
-    
-    try {
-        let contentHTML = '';
-
-        // ATENÇÃO: authReady e supabaseClient são definidos em auth.js
-        if (!authReady || !supabaseClient) {
-            throw new Error("Sistema não inicializado. Tente recarregar.");
+        // 2. Chama a função assíncrona para carregar o conteúdo da aba
+        if (typeof renderAdminContent === 'function') {
+            renderAdminContent();
+        } else {
+             // Este erro ocorre se database.js não carregar corretamente.
+             console.error("Erro: A função 'renderAdminContent' não está definida. Verifique database.js.");
+             document.getElementById('dynamic-content').innerHTML = "<p class='text-red-500 text-center p-8'>Erro: `renderAdminContent` não definida. Verifique database.js.</p>";
         }
-
-        // O switch-case é mais limpo que múltiplos if/else
-        switch (adminTab) {
-            case 'dashboard':
-                contentHTML = await getDashboardOverviewHTML();
-                break;
-            case 'psychologists':
-                contentHTML = await getPsychologistsListHTML();
-                break;
-            case 'patients':
-                contentHTML = await getPatientsListHTML();
-                break;
-            default:
-                contentHTML = "<p>Aba desconhecida.</p>";
-        }
-
-        container.innerHTML = contentHTML;
-
-    } catch (error) {
-        console.error("Erro detalhado:", error);
-        
-        let errorMessage = error.message;
-        // Mapeamento de códigos de erro do PostgreSQL/Supabase
-        if (error.code === '42P01') errorMessage = "Tabela 'profiles' não existe. Execute o script SQL no Supabase.";
-        else if (error.code === '42703') errorMessage = "Coluna do banco não existe. Execute o script SQL no Supabase.";
-        else if (error.code === 'PGRST301' || (error.message && error.message.includes('permission denied'))) errorMessage = "Erro de permissão (RLS). Verifique as políticas de segurança do Supabase.";
-
-
-        container.innerHTML = `
-            <div class="text-center p-8 border-2 border-red-100 rounded-lg bg-red-50">
-                <h3 class="font-bold text-red-700 text-lg mb-2">Erro ao carregar dados</h3>
-                <p class="text-gray-700 mb-4">${errorMessage}</p>
-                <p class="text-sm text-gray-500 mb-4">Verifique se as tabelas 'profiles' e 'appointments' existem e se as regras de RLS estao configuradas para permitir leitura pelo 'anon' (apenas para este dashboard simples, o ideal seria 'authenticated' admin).</p>
-                <button onclick="renderAdminContent()" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Tentar Novamente</button>
-            </div>
-        `;
+        return;
     }
+
+    app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
 }
 
 
-// ============================================================
-// 7. AÇÕES DO SISTEMA (Aprovar, Bloquear, Deletar)
-// ============================================================
-// Estes agora devem chamar renderAdminContent() para atualizar a UI
-
-async function updateUserStatus(userId, newStatus) {
-    if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
-    
-    console.log(`Ação: Tentando mudar o status do usuário ${userId} para ${newStatus}`);
-
-    try {
-        // Assume-se que o RLS está configurado para permitir updates no 'profiles'
-        const { error } = await supabaseClient.from('profiles').update({ status: newStatus }).eq('id', userId);
-
-        if (error) {
-            if (error.code === '42703') { 
-                console.error("ERRO: A coluna 'status' não existe. Execute o script SQL no Supabase.");
-                return;
-            }
-            throw error;
-        }
-
-        console.log('Status atualizado com sucesso!');
-        await renderAdminContent(); // Força a atualização da lista
-    } catch (err) {
-        console.error('Erro ao atualizar:', err.message);
-    }
-}
-
-async function deleteUser(userId) {
-    if (!supabaseClient) { console.error("Supabase não inicializado."); return; }
-
-    console.log(`Ação: Tentando deletar o usuário ${userId}`);
-
-    try {
-        // Assume-se que o RLS está configurado para permitir deletes no 'profiles'
-        const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
-
-        if (error) throw error;
-
-        console.log('Usuário removido!');
-        await renderAdminContent(); // Força a atualização da lista
-    } catch (err) {
-        console.error('Erro ao remover:', err.message);
-    }
-}
-
-// Funções utilitárias (mantidas para referência)
-async function createAppointment(patientId, psychologistId, date, time) {
+// Funções de autenticação Supabase (Apenas placeholders)
+async function signUp(email, password, full_name, role = "patient") {
   if (!supabaseClient) throw new Error("Supabase not initialized");
-  // Implementação de agendamento 
   return true;
 }
 
-async function updateAppointmentStatus(appointmentId, status) {
+async function signIn(email, password) {
   if (!supabaseClient) throw new Error("Supabase not initialized");
-  // Implementação de atualização de status 
   return true;
 }
 
-async function approvePsychologist(id) {
+async function signOut() {
   if (!supabaseClient) throw new Error("Supabase not initialized");
-  // Implementação de aprovação 
-  return true;
+  await supabaseClient.auth.signOut();
+}
+
+async function getProfile(uid) {
+  if (!supabaseClient) throw new Error("Supabase not initialized");
+  return null;
+}
+
+function onAuthChange(cb) {
+  if (!supabaseClient) return;
 }
