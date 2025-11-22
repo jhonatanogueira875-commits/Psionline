@@ -1,7 +1,7 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  Substitui auth.js e database.js.
+  Este arquivo é agora autossuficiente para Login/Logout e exibição do Painel.
 */
 
 // ============================================================
@@ -27,7 +27,7 @@ if (!supabaseClient) {
 // ============================================================
 
 let currentPage = "login"; // 'login' ou 'admin'
-let currentAdminTab = "dashboard"; // 'dashboard' ou 'appointments'
+let currentAdminTab = "dashboard"; // 'dashboard', 'appointments' ou 'profiles'
 let userSession = null;
 
 /**
@@ -46,9 +46,7 @@ function navigateTo(page) {
 function setUserSession(session) {
     userSession = session;
     if (userSession) {
-        // Verifica se o usuário é admin
-        // No mundo real, esta verificação viria de um perfil do banco de dados (RLS)
-        // Por enquanto, assumimos que quem faz login é o admin.
+        // Assume que qualquer usuário logado aqui é o administrador para fins de desenvolvimento.
         navigateTo("admin");
     } else {
         navigateTo("login");
@@ -57,7 +55,7 @@ function setUserSession(session) {
 
 
 // ============================================================
-// 3. AUTENTICAÇÃO
+// 3. AUTENTICAÇÃO (CORRIGIDA)
 // ============================================================
 
 /**
@@ -69,7 +67,7 @@ async function handleLogin() {
     const loginStatus = document.getElementById('login-status');
     loginStatus.textContent = 'A processar...';
 
-    // Importante: Em um ambiente real, você deve proteger este endpoint com RLS para admins.
+    // *** CORREÇÃO: Usando a sintaxe completa do supabaseClient.auth ***
     const { data, error } = await supabaseClient.auth.signInWithPassword({
         email: email,
         password: password,
@@ -114,7 +112,8 @@ function renderLogin() {
                 <p class="text-center text-sm text-gray-600 mb-6">
                     Acesso restrito para gerentes.
                 </p>
-                <form id="login-form" onsubmit="event.preventDefault(); handleLogin();">
+                <!-- CORREÇÃO: Removido o preventDefault do form para que o handleLogin funcione corretamente com o onclick -->
+                <form id="login-form">
                     <div class="space-y-4">
                         <div>
                             <label for="email" class="block text-sm font-medium text-gray-700">E-mail</label>
@@ -128,7 +127,7 @@ function renderLogin() {
                         </div>
                     </div>
                     <div class="mt-6">
-                        <button type="submit"
+                        <button type="button" onclick="handleLogin()"
                             class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition duration-150">
                             Entrar
                         </button>
@@ -240,6 +239,7 @@ function joinData(profiles, appointments) {
 
     return appointments.map(a => ({
         ...a,
+        // Usamos profile_id como a chave de join
         client: profileMap.get(a.profile_id) || { name: 'Desconhecido', email: 'N/A' }
     }));
 }
