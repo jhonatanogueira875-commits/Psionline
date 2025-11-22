@@ -4,18 +4,19 @@
   Replace SUPABASE_URL and SUPABASE_ANON_KEY with your project's values.
 */
 
-const SUPABASE_URL = "REPLACE_WITH_YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_SUPABASE_ANON_KEY";
+// INSIRA SUA CHAVE AQUI
+const SUPABASE_URL = "https://jhcylgeukoiomydgppxc.supabase.co"; 
+
+// INSIRA SUA CHAVE AQUI
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A
+
+"; 
 
 // initialize client (expects <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script> in HTML)
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 if (!supabaseClient) console.warn("Supabase client not initialized. Check your script import and keys.");
 
-async function signUp(email, password, full_name, role = "patient") {
-  if (!supabaseClient) throw new Error("Supabase not initialized");
-  const res = await supabaseClient.auth.signUp({ email, password });
-  if (res.error) throw res.error;
-
+// ... (rest of the code is fine)
   const user = res.data.user;
   if (!user) return res;
 
@@ -59,3 +60,4 @@ async function currentSession() {
   const { data } = await supabaseClient.auth.getSession();
   return data?.session || null;
 }
+
