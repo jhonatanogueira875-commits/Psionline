@@ -1,11 +1,11 @@
 /*
   app.js
   Lógica unificada para inicialização do Supabase, navegação e gestão de dados.
-  Substitui auth.js e database.js.
+  Inclui a tela de Login/Cadastro de Paciente e a tela de Cadastro de Psicólogo.
 */
 
 // ============================================================
-// 1. CONFIGURAÇÃO SUPABASE
+// 1. CONFIGURAÇÃO SUPABASE E VARIÁVEIS GLOBAIS
 // ============================================================
 
 // **IMPORTANTE**: Chaves Supabase do seu projeto
@@ -21,55 +21,686 @@ if (!supabaseClient) {
     console.log("Supabase inicializado com sucesso.");
 }
 
-// ============================================================
-// 2. VARIÁVEIS DE ESTADO
-// ============================================================
-let currentUser = null;
-let currentProfile = null;
-let currentPage = "login";
-let currentAdminTab = "overview";
-let isAuthReady = false;
-
+// Estado global da aplicação
+let currentUser = null; // Objeto de usuário Supabase (inclui ID)
+let userProfile = null; // Objeto de perfil do banco de dados (inclui role)
+let currentPage = "login"; // Controla qual tela renderizar (login, admin, patient, psychologist_signup)
+let currentAdminTab = "psychologists"; // Controla qual aba está ativa no painel do Admin
 
 // ============================================================
-// 3. FUNÇÕES DE NAVEGAÇÃO E AÇÕES (MUDANÇA DE ESTADO)
+// 2. LÓGICA SUPABASE (Adaptação/Inclusão de Métodos)
 // ============================================================
 
 /**
- * Função para alterar a aba administrativa.
+ * Função utilitária para pegar o perfil.
+ * @param {string} uid ID do usuário.
+ * @returns {Promise<object|null>} Perfil do usuário.
  */
-function changeAdminTab(tab) {
-    if (currentAdminTab !== tab) {
-        currentAdminTab = tab;
-        // Re-renderiza o shell (para a tab ficar ativa) e carrega o conteúdo
-        document.getElementById("app").innerHTML = renderAdminShell();
-        renderAdminContent();
+async function getProfile(uid) {
+    if (!supabaseClient) return null;
+    const { data, error } = await supabaseClient.from("profiles").select("*").eq("id", uid).single();
+    if (error) {
+        console.warn("Nenhum perfil encontrado para o usuário:", uid);
+        return null;
+    }
+    return data;
+}
+
+/**
+ * Registra um novo usuário E cria um perfil de paciente.
+ * @param {string} email
+ * @param {string} password
+ * @param {string} full_name
+ */
+async function signUpPatient(email, password, full_name) {
+    if (!supabaseClient) throw new Error("Supabase não inicializado");
+    // 1. Cria o usuário Supabase
+    const { data: userResponse, error: authError } = await supabaseClient.auth.signUp({ email, password });
+    if (authError) throw authError;
+
+    const user = userResponse.user;
+    if (!user) return userResponse;
+
+    // 2. Cria o registro de perfil na tabela 'profiles' (role: 'patient')
+    const { error: profileError } = await supabaseClient
+        .from("profiles")
+        .insert([{ id: user.id, full_name, role: "patient" }]);
+    if (profileError) {
+        console.error("Erro ao criar perfil de paciente:", profileError);
+        throw profileError;
+    }
+
+    return userResponse;
+}
+
+/**
+ * Registra um novo usuário E cria um perfil de psicólogo, incluindo foto e preço da sessão.
+ * @param {string} email
+ * @param {string} password
+ * @param {string} full_name
+ * @param {File} photoFile
+ * @param {number} session_price
+ */
+async function signUpPsychologist(email, password, full_name, photoFile, session_price) {
+    if (!supabaseClient) throw new Error("Supabase não inicializado");
+
+    // 1. Cria o usuário Supabase
+    const { data: userResponse, error: authError } = await supabaseClient.auth.signUp({ email, password });
+    if (authError) throw authError;
+
+    const user = userResponse.user;
+    if (!user) return userResponse;
+
+    // 2. Faz o upload da foto para o storage
+    let photo_url = null;
+    if (photoFile) {
+        const filePath = `${user.id}/${photoFile.name}`;
+        const { data: uploadData, error: uploadError } = await supabaseClient.storage
+            .from('psychologist_photos') // Certifique-se de que este bucket existe!
+            .upload(filePath, photoFile, {
+                cacheControl: '3600',
+                upsert: false
+            });
+
+        if (uploadError) {
+            console.warn("Erro no upload da foto. O perfil será criado sem foto.", uploadError);
+            // Continua, mas sem a foto
+        } else {
+            // Obtém a URL pública da foto
+            const { data: publicUrlData } = supabaseClient.storage
+                .from('psychologist_photos')
+                .getPublicUrl(filePath);
+
+            photo_url = publicUrlData.publicUrl;
+        }
+    }
+
+
+    // 3. Cria o registro de perfil na tabela 'profiles' (role: 'psychologist')
+    const { error: profileError } = await supabaseClient
+        .from("profiles")
+        .insert([{ id: user.id, full_name, role: "psychologist" }]);
+    if (profileError) {
+        console.error("Erro ao criar perfil de psicólogo (profiles):", profileError);
+        // Tenta reverter a criação do usuário (opcional, mas bom)
+        // Note: Reverter a criação do usuário requer o service_role key, o que não fazemos aqui.
+        // Iremos apenas lançar o erro.
+        throw profileError;
+    }
+
+    // 4. Cria o registro na tabela 'psychologists'
+    const { error: psyError } = await supabaseClient
+        .from("psychologists")
+        .insert([{
+            user_id: user.id,
+            session_price: session_price,
+            photo_url: photo_url,
+            status: "pending" // Começa como pendente para aprovação do Admin
+        }]);
+
+    if (psyError) {
+        console.error("Erro ao criar registro na tabela psychologists:", psyError);
+        throw psyError;
+    }
+
+    return userResponse;
+}
+
+/**
+ * Faz login do usuário.
+ * @param {string} email
+ * @param {string} password
+ */
+async function signIn(email, password) {
+    if (!supabaseClient) throw new Error("Supabase não inicializado");
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+}
+
+/**
+ * Faz logout do usuário.
+ */
+async function signOut() {
+    if (!supabaseClient) return;
+    await supabaseClient.auth.signOut();
+    currentUser = null;
+    userProfile = null;
+    currentPage = "login";
+    render();
+}
+
+// -------------------
+// Funções de Busca (Database) - Adaptadas
+// -------------------
+
+async function fetchPsychologists() {
+    if (!supabaseClient) return [];
+    // 1. Pega os dados da tabela psychologists
+    const { data: psychologistsData, error: psyError } = await supabaseClient
+        .from("psychologists")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+    if (psyError) {
+        console.error("fetchPsychologists error:", psyError);
+        return [];
+    }
+
+    // 2. Para cada psicólogo, pega o perfil (nome, etc.)
+    const result = await Promise.all(psychologistsData.map(async (p) => {
+        let profile = null;
+        if (p.user_id) {
+            profile = await getProfile(p.user_id);
+        }
+        return { ...p, profile };
+    }));
+    return result;
+}
+
+async function fetchPatients() {
+    if (!supabaseClient) return [];
+    // 1. Pega os dados da tabela profiles onde role é 'patient'
+    const { data: patientProfiles, error: profileError } = await supabaseClient
+        .from("profiles")
+        .select("*")
+        .eq("role", "patient")
+        .order("created_at", { ascending: false });
+
+    if (profileError) {
+        console.error("fetchPatients error:", profileError);
+        return [];
+    }
+
+    // Para esta versão, usaremos apenas os dados do perfil, mas num app real,
+    // buscaríamos dados adicionais de uma tabela 'patients' se ela existisse.
+    return patientProfiles;
+}
+
+async function fetchAppointments() {
+    if (!supabaseClient) return [];
+    const { data, error } = await supabaseClient
+        .from("appointments")
+        .select("*, patient_profile:patient_id(full_name), psychologist_profile:psychologist_id(full_name)")
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        console.error("fetchAppointments error:", error);
+        return [];
+    }
+    return data;
+}
+
+async function approvePsychologist(id) {
+    if (!supabaseClient) throw new Error("Supabase não inicializado");
+    const { error } = await supabaseClient.from("psychologists").update({ status: "approved" }).eq("user_id", id);
+    if (error) throw error;
+    return true;
+}
+
+async function loadDashboardData() {
+    const psychologists = await fetchPsychologists();
+    const patients = await fetchPatients();
+    const appointments = await fetchAppointments();
+
+    const totalRev = (appointments || []).reduce((sum, a) => sum + parseFloat(a.value || 0), 0);
+    return {
+        psychologists,
+        patients,
+        appointments,
+        totalRevenue: totalRev.toFixed(2)
+    };
+}
+
+
+// ============================================================
+// 3. HANDLERS DE EVENTOS (Submissão de Formulários)
+// ============================================================
+
+/**
+ * Lida com o login ou cadastro de paciente.
+ * @param {'login' | 'signup'} type
+ */
+async function handleAuth(type) {
+    const form = document.getElementById('auth-form');
+    const email = form.email.value;
+    const password = form.password.value;
+    const full_name = form.full_name ? form.full_name.value : null;
+    const messageEl = document.getElementById('auth-message');
+    messageEl.textContent = "Processando...";
+    messageEl.className = 'text-center text-sm p-2 text-purple-600';
+
+    try {
+        if (type === 'signup') {
+            if (!full_name) throw new Error("Nome Completo é obrigatório para cadastro.");
+            await signUpPatient(email, password, full_name);
+            messageEl.textContent = "Cadastro de paciente efetuado com sucesso! Fazendo login...";
+        } else {
+            await signIn(email, password);
+            messageEl.textContent = "Login efetuado com sucesso! Redirecionando...";
+        }
+
+        // A mudança de estado de autenticação será detectada pelo listener 'onAuthStateChange'
+        // que chamará render().
+
+    } catch (error) {
+        console.error("Erro de autenticação:", error);
+        messageEl.textContent = `Erro: ${error.message || error.toString()}`;
+        messageEl.className = 'text-center text-sm p-2 text-red-500 font-semibold';
     }
 }
 
 /**
- * Simula o login de administrador (apenas define o estado).
+ * Lida com o cadastro de um novo psicólogo.
  */
-function handleAdminLogin() {
-    // ID SIMULADO para o Admin
-    currentUser = { uid: "admin-simulado-01" }; 
-    currentPage = "admin";
-    render();
+async function handlePsychologistSignUp() {
+    const form = document.getElementById('psy-signup-form');
+    const email = form.email.value;
+    const password = form.password.value;
+    const full_name = form.full_name.value;
+    const session_price = parseFloat(form.session_price.value);
+    const photoFile = form.photo.files[0];
+    const messageEl = document.getElementById('psy-message');
+    
+    messageEl.textContent = "Processando cadastro...";
+    messageEl.className = 'text-center text-sm p-2 text-purple-600';
+
+    try {
+        if (!full_name || !email || !password || isNaN(session_price)) {
+            throw new Error("Preencha todos os campos obrigatórios.");
+        }
+        
+        await signUpPsychologist(email, password, full_name, photoFile, session_price);
+        messageEl.textContent = "Cadastro de psicólogo efetuado com sucesso! Aguardando aprovação do Admin.";
+        messageEl.className = 'text-center text-sm p-2 text-green-600 font-semibold';
+        // Após o cadastro, retorna para a tela de login
+        setTimeout(() => {
+            currentPage = 'login';
+            render();
+        }, 3000);
+
+    } catch (error) {
+        console.error("Erro no cadastro de psicólogo:", error);
+        messageEl.textContent = `Erro: ${error.message || error.toString()}`;
+        messageEl.className = 'text-center text-sm p-2 text-red-500 font-semibold';
+    }
+}
+
+
+/**
+ * Lida com a aprovação de um psicólogo pelo Admin.
+ * @param {string} userId
+ */
+async function handleApprovePsychologist(userId) {
+    const button = document.querySelector(`#approve-btn-${userId}`);
+    if (!button) return;
+
+    button.textContent = 'Aprovando...';
+    button.disabled = true;
+
+    try {
+        await approvePsychologist(userId);
+        // Recarrega os dados do dashboard para atualizar a lista
+        await renderAdminContent();
+    } catch (error) {
+        console.error("Erro ao aprovar psicólogo:", error);
+        alert("Erro ao aprovar psicólogo. Verifique as regras de RLS.");
+        button.textContent = 'Aprovar';
+        button.disabled = false;
+    }
+}
+
+
+// ============================================================
+// 4. TEMPLATES DE RENDERIZAÇÃO
+// ============================================================
+
+/**
+ * Renderiza a interface de login/cadastro de paciente.
+ * @returns {string} HTML
+ */
+function renderLogin() {
+    const isLogin = currentPage === 'login';
+
+    const loginToggle = (
+        `<div class="flex justify-center mb-6">
+            <button onclick="currentPage='login'; render();" class="px-4 py-2 rounded-l-lg ${isLogin ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700'} font-semibold transition duration-150">
+                Login
+            </button>
+            <button onclick="currentPage='signup'; render();" class="px-4 py-2 rounded-r-lg ${!isLogin ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700'} font-semibold transition duration-150">
+                Cadastrar Paciente
+            </button>
+        </div>`
+    );
+
+    const full_name_input = !isLogin ? `
+        <input type="text" id="full_name" name="full_name" placeholder="Nome Completo" required
+            class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+    ` : '';
+
+    return `
+        <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl">
+                <h1 class="text-3xl font-extrabold text-center text-purple-700 mb-6">PSI Online</h1>
+                
+                ${loginToggle}
+
+                <form id="auth-form" onsubmit="event.preventDefault(); handleAuth('${isLogin ? 'login' : 'signup'}()')">
+                    ${full_name_input}
+                    <input type="email" id="email" name="email" placeholder="Email" required
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    <input type="password" id="password" name="password" placeholder="Senha" required
+                        class="w-full p-3 mb-6 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    
+                    <button type="submit" class="w-full p-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition duration-150 shadow-md">
+                        ${isLogin ? 'Entrar' : 'Cadastrar'}
+                    </button>
+                </form>
+
+                <p id="auth-message" class="mt-4"></p>
+                
+                <div class="mt-6 text-center text-sm">
+                    <a href="#" onclick="currentPage='psychologist_signup'; render();" class="text-purple-600 hover:text-purple-800 font-semibold transition duration-150">
+                        Sou Psicólogo(a). Cadastrar-me agora.
+                    </a>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 /**
- * Simula o logout (apenas reseta o estado).
+ * Renderiza a interface de cadastro de psicólogo.
+ * @returns {string} HTML
  */
-function handleLogout() {
-    currentUser = null;
-    currentPage = "login";
-    currentAdminTab = "overview";
-    render();
+function renderPsychologistSignUp() {
+    return `
+        <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div class="w-full max-w-lg bg-white p-8 rounded-xl shadow-2xl">
+                <h1 class="text-3xl font-extrabold text-center text-purple-700 mb-4">Cadastro de Psicólogo(a)</h1>
+                <p class="text-center text-gray-600 mb-6">Sua conta será criada e estará sujeita à aprovação do administrador.</p>
+
+                <form id="psy-signup-form" onsubmit="event.preventDefault(); handlePsychologistSignUp()">
+                    <input type="text" id="full_name" name="full_name" placeholder="Nome Completo (Conforme CRP)" required
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+
+                    <input type="email" id="email" name="email" placeholder="Email (Será seu login)" required
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+
+                    <input type="password" id="password" name="password" placeholder="Senha" required
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Foto de Perfil (Opcional, mas Recomendada)</label>
+                    <input type="file" id="photo" name="photo" accept="image/*"
+                        class="w-full p-3 mb-4 text-gray-700 border border-gray-300 rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 transition duration-150">
+
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Valor da Sessão (R$)</label>
+                    <input type="number" step="0.01" id="session_price" name="session_price" placeholder="Ex: 150.00" required
+                        class="w-full p-3 mb-6 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    
+                    <button type="submit" class="w-full p-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-150 shadow-md">
+                        Cadastrar Psicólogo(a)
+                    </button>
+                </form>
+
+                <p id="psy-message" class="mt-4"></p>
+                
+                <div class="mt-6 text-center text-sm">
+                    <a href="#" onclick="currentPage='login'; render();" class="text-purple-600 hover:text-purple-800 font-semibold transition duration-150">
+                        Voltar para Login / Paciente
+                    </a>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
+
+// --- Funções de Renderização do Admin (Mantidas) ---
+
+/**
+ * Renderiza o shell do Admin com navegação e logout.
+ * @returns {string} HTML
+ */
+function renderAdminShell() {
+    // Código HTML do shell do Admin (Topo e abas de navegação)
+    return `
+        <div class="min-h-screen bg-gray-100">
+            <header class="bg-purple-700 text-white p-4 shadow-md flex justify-between items-center">
+                <h1 class="text-2xl font-bold">PSI Online - Admin (${userProfile?.full_name || 'Admin'})</h1>
+                <button onclick="signOut()" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-lg transition duration-150">
+                    Sair
+                </button>
+            </header>
+
+            <div class="p-6">
+                <div class="flex border-b border-gray-300 mb-6">
+                    ${['psychologists', 'patients', 'appointments', 'overview'].map(tab => `
+                        <button onclick="currentAdminTab='${tab}'; renderAdminContent();"
+                            class="py-2 px-4 font-semibold transition duration-150
+                            ${currentAdminTab === tab
+                                ? 'border-b-4 border-purple-600 text-purple-700 bg-white'
+                                : 'text-gray-500 hover:text-purple-600'
+                            }">
+                            ${tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        </button>
+                    `).join('')}
+                </div>
+
+                <div id="admin-content" class="bg-white p-6 rounded-xl shadow-lg">
+                    <p class="text-center text-gray-500">Carregando dados...</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Renderiza o conteúdo da aba "Psychologists".
+ * @param {Array<object>} psychologists
+ * @returns {string} HTML
+ */
+function renderPsychologistsTab(psychologists) {
+    const pendingPsychologists = psychologists.filter(p => p.status !== 'approved');
+    const approvedPsychologists = psychologists.filter(p => p.status === 'approved');
+
+    const renderList = (title, list, showActions) => `
+        <h3 class="text-xl font-bold text-purple-700 mb-3">${title} (${list.length})</h3>
+        ${list.length === 0 
+            ? `<p class="text-gray-500 mb-6">Nenhum ${title.toLowerCase()} encontrado.</p>`
+            : `<div class="space-y-4 mb-8">
+                ${list.map(p => `
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <div class="flex items-center">
+                            <img src="${p.photo_url || 'https://placehold.co/50x50/B5B5C3/white?text=PSI'}" 
+                                 onerror="this.onerror=null; this.src='https://placehold.co/50x50/B5B5C3/white?text=PSI';"
+                                 class="w-12 h-12 rounded-full object-cover mr-4 shadow">
+                            <div>
+                                <p class="font-semibold text-gray-800">${p.profile?.full_name || 'Nome Desconhecido'}</p>
+                                <p class="text-sm text-gray-500">${p.profile?.email || 'Email Desconhecido'}</p>
+                                <p class="text-xs text-purple-500">R$ ${p.session_price || 'N/A'}</p>
+                            </div>
+                        </div>
+                        
+                        ${showActions ? `
+                            <button id="approve-btn-${p.user_id}" 
+                                onclick="handleApprovePsychologist('${p.user_id}')"
+                                class="mt-2 sm:mt-0 px-4 py-1 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition duration-150">
+                                Aprovar
+                            </button>` 
+                            : `<span class="mt-2 sm:mt-0 text-sm font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">Aprovado</span>`
+                        }
+                    </div>
+                `).join('')}
+            </div>`
+        }
+    `;
+
+    return `
+        <h2 class="text-2xl font-extrabold text-purple-800 mb-6">Gestão de Psicólogos</h2>
+        ${renderList("Novos Cadastros Pendentes", pendingPsychologists, true)}
+        <hr class="my-6 border-gray-300">
+        ${renderList("Psicólogos Aprovados", approvedPsychologists, false)}
+    `;
+}
+
+/**
+ * Renderiza o conteúdo da aba "Patients".
+ * @param {Array<object>} patients
+ * @returns {string} HTML
+ */
+function renderPatientsTab(patients) {
+    // Função simples para mostrar a lista de pacientes (profiles com role 'patient')
+    return `
+        <h2 class="text-2xl font-extrabold text-purple-800 mb-6">Lista de Pacientes Cadastrados</h2>
+        <p class="text-gray-600 mb-4">Total de Pacientes: ${patients.length}</p>
+        
+        ${patients.length === 0 
+            ? `<p class="text-gray-500">Nenhum paciente cadastrado.</p>`
+            : `<div class="space-y-3">
+                ${patients.map(p => `
+                    <div class="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <p class="font-semibold text-gray-800">${p.full_name}</p>
+                        <p class="text-sm text-gray-500">ID: ${p.id}</p>
+                        <p class="text-xs text-purple-500">${new Date(p.created_at).toLocaleDateString()}</p>
+                    </div>
+                `).join('')}
+            </div>`
+        }
+    `;
+}
+
+/**
+ * Renderiza o conteúdo da aba "Appointments".
+ * @param {Array<object>} appointments
+ * @returns {string} HTML
+ */
+function renderAppointmentsTab(appointments) {
+    const statusColor = (status) => {
+        if (status === 'pending') return 'bg-yellow-100 text-yellow-800';
+        if (status === 'confirmed') return 'bg-green-100 text-green-800';
+        if (status === 'completed') return 'bg-blue-100 text-blue-800';
+        return 'bg-gray-100 text-gray-800';
+    };
+
+    return `
+        <h2 class="text-2xl font-extrabold text-purple-800 mb-6">Consultas Agendadas</h2>
+        <p class="text-gray-600 mb-4">Total de Consultas: ${appointments.length}</p>
+
+        ${appointments.length === 0
+            ? `<p class="text-gray-500">Nenhuma consulta agendada.</p>`
+            : `<div class="space-y-4">
+                ${appointments.map(a => `
+                    <div class="p-4 bg-gray-50 rounded-lg border border-gray-200 shadow-sm flex justify-between items-center">
+                        <div>
+                            <p class="font-semibold text-gray-800">
+                                ${a.patient_profile?.full_name || 'Paciente Desconhecido'} 
+                                <span class="text-sm font-normal text-gray-500">agendou com</span>
+                                ${a.psychologist_profile?.full_name || 'Psicólogo Desconhecido'}
+                            </p>
+                            <p class="text-sm text-purple-600">
+                                Data: ${a.scheduled_date} às ${a.scheduled_time} | R$ ${a.value ? parseFloat(a.value).toFixed(2) : '0.00'}
+                            </p>
+                        </div>
+                        <span class="text-xs font-medium px-3 py-1 rounded-full ${statusColor(a.status)} capitalize">
+                            ${a.status}
+                        </span>
+                    </div>
+                `).join('')}
+            </div>`
+        }
+    `;
+}
+
+/**
+ * Renderiza o conteúdo da aba "Overview".
+ * @param {object} data
+ * @returns {string} HTML
+ */
+function renderOverviewTab(data) {
+    const statCard = (title, value, color) => `
+        <div class="bg-white p-6 rounded-xl shadow-lg border-b-4 ${color}">
+            <p class="text-sm font-medium text-gray-500">${title}</p>
+            <p class="text-3xl font-extrabold text-gray-900 mt-1">${value}</p>
+        </div>
+    `;
+
+    return `
+        <h2 class="text-2xl font-extrabold text-purple-800 mb-6">Visão Geral do Sistema</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            ${statCard("Psicólogos (Aprovados)", data.psychologists.filter(p => p.status === 'approved').length, 'border-purple-500')}
+            ${statCard("Pacientes Registrados", data.patients.length, 'border-blue-500')}
+            ${statCard("Total de Consultas", data.appointments.length, 'border-yellow-500')}
+            ${statCard("Receita Total (Agendada)", `R$ ${data.totalRevenue}`, 'border-green-500')}
+        </div>
+        <div class="mt-8">
+            <h3 class="text-xl font-bold text-gray-700 mb-3">Últimos Cadastros</h3>
+            ${data.patients.slice(0, 5).map(p => `
+                <p class="text-sm text-gray-600">${p.full_name} - Paciente</p>
+            `).join('')}
+            ${data.psychologists.slice(0, 5).map(p => `
+                <p class="text-sm text-gray-600">${p.profile?.full_name || 'Psicólogo Desconhecido'} - Psicólogo (${p.status})</p>
+            `).join('')}
+        </div>
+    `;
+}
+
+/**
+ * Função assíncrona para carregar e renderizar o conteúdo da aba Admin.
+ */
+async function renderAdminContent() {
+    const contentEl = document.getElementById("admin-content");
+    if (!contentEl) return;
+    
+    // Mostra um estado de carregamento
+    contentEl.innerHTML = `<p class="text-center text-purple-600 p-8"><i class="fas fa-spinner fa-spin mr-2"></i> Carregando dados do Dashboard...</p>`;
+    
+    try {
+        const data = await loadDashboardData();
+        
+        let contentHtml = '';
+        switch (currentAdminTab) {
+            case 'psychologists':
+                contentHtml = renderPsychologistsTab(data.psychologists);
+                break;
+            case 'patients':
+                contentHtml = renderPatientsTab(data.patients);
+                break;
+            case 'appointments':
+                contentHtml = renderAppointmentsTab(data.appointments);
+                break;
+            case 'overview':
+                contentHtml = renderOverviewTab(data);
+                break;
+            default:
+                contentHtml = `<p class="text-center text-gray-500 p-8">Selecione uma aba.</p>`;
+        }
+
+        contentEl.innerHTML = contentHtml;
+
+    } catch (error) {
+        console.error("Erro ao carregar dados do dashboard:", error);
+        contentEl.innerHTML = `
+            <div class="text-center p-10 bg-red-50 rounded-lg">
+                <p class="text-red-700 font-bold mb-3">ERRO ao Carregar Dados do Banco de Dados</p>
+                <p class="text-sm text-red-600 mb-4">
+                    <strong>Detalhe:</strong> ${error.message || 'Erro desconhecido.'}
+                </p>
+                <p class="text-sm text-red-600 mb-4">
+                    <strong>Sugestão:</strong> Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem e se o RLS
+                    permite a leitura (select) para a role <code>anon</code>.
+                </p>
+                <button onclick="renderAdminContent()" class="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition duration-150">
+                    Tentar Novamente
+                </button>
+            </div>
+        `;
+    }
+}
+
+
 // ============================================================
-// 4. FUNÇÃO MESTRE DE RENDERIZAÇÃO
-//    MOVEMOS PARA O INÍCIO PARA RESOLVER O 'render is not defined'
+// 5. FUNÇÃO MESTRE DE RENDERIZAÇÃO
 // ============================================================
 
 /**
@@ -78,12 +709,25 @@ function handleLogout() {
 function render() {
     const app = document.getElementById("app");
     
-    if (currentPage === "login") {
+    if (currentPage === "login" || currentPage === "signup") {
         app.innerHTML = renderLogin();
         return;
     }
 
-    if (currentPage === "admin") {
+    if (currentPage === "psychologist_signup") {
+        app.innerHTML = renderPsychologistSignUp();
+        return;
+    }
+
+    // A partir daqui, as páginas requerem um usuário logado
+    if (!currentUser || !userProfile) {
+        // Redireciona para o login se o usuário não estiver logado
+        currentPage = "login";
+        app.innerHTML = renderLogin();
+        return;
+    }
+
+    if (userProfile.role === "admin") {
         // 1. Renderiza o esqueleto (shell) da página Admin
         app.innerHTML = renderAdminShell();
         
@@ -92,528 +736,74 @@ function render() {
         return;
     }
 
-    app.innerHTML = "<p class='p-10 text-center'>Página desconhecida.</p>";
+    if (userProfile.role === "patient") {
+        app.innerHTML = `<div class="p-10 text-center bg-green-50 min-h-screen">
+                            <h1 class="text-2xl font-bold text-green-700">Bem-vindo(a), Paciente ${userProfile.full_name}!</h1>
+                            <p class="text-gray-600 mt-2">Sua role é: ${userProfile.role}</p>
+                            <p class="text-gray-500 mt-4">Em breve, a tela de agendamento de consultas.</p>
+                            <button onclick="signOut()" class="mt-6 bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">
+                                Sair
+                            </button>
+                         </div>`;
+        return;
+    }
+
+    if (userProfile.role === "psychologist") {
+        app.innerHTML = `<div class="p-10 text-center bg-blue-50 min-h-screen">
+                            <h1 class="text-2xl font-bold text-blue-700">Bem-vindo(a), Psicólogo(a) ${userProfile.full_name}!</h1>
+                            <p class="text-gray-600 mt-2">Sua role é: ${userProfile.role}</p>
+                            <p class="text-gray-500 mt-4">Em breve, o painel de consultas e perfil.</p>
+                            <button onclick="signOut()" class="mt-6 bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">
+                                Sair
+                            </button>
+                         </div>`;
+        return;
+    }
+
+
+    app.innerHTML = `<p class='p-10 text-center'>Página desconhecida ou role não suportada (${userProfile.role}).</p>`;
 }
 
-/**
- * Função central para carregar o conteúdo da aba ativa.
- */
-async function renderAdminContent() {
-    const contentArea = document.getElementById("admin-content");
-    if (!contentArea) return;
+// ============================================================
+// 6. INICIALIZAÇÃO E LISTENER DE AUTENTICAÇÃO
+// ============================================================
 
-    // Limpa e mostra loading
-    contentArea.innerHTML = `
-        <div class="text-center py-12 text-purple-600">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-3"></div>
-            <p class="text-lg">Carregando dados da aba...</p>
-        </div>
-    `;
+// A função de listener de autenticação é o coração da navegação.
+// Ela verifica se o usuário está logado e carrega o perfil (role) para decidir qual tela renderizar.
+supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    console.log("Evento de Autenticação:", event);
 
-    try {
-        const data = await loadDashboardData();
+    // 1. Atualiza o estado global de autenticação
+    currentUser = session?.user || null;
 
-        if (data.error) {
-            contentArea.innerHTML = renderErrorState();
-            return;
+    if (currentUser) {
+        // 2. Carrega o perfil do usuário (para obter a role)
+        userProfile = await getProfile(currentUser.id);
+        
+        if (userProfile && userProfile.role === 'admin') {
+            currentPage = 'admin';
+        } else if (userProfile && userProfile.role === 'patient') {
+            currentPage = 'patient';
+        } else if (userProfile && userProfile.role === 'psychologist') {
+            currentPage = 'psychologist';
+        } else {
+            // Se não tem perfil ou a role é desconhecida, faz logout e volta ao login
+            console.error("Perfil ou Role desconhecida. Redirecionando para login.");
+            await supabaseClient.auth.signOut();
+            currentPage = 'login';
         }
-
-        switch (currentAdminTab) {
-            case "overview":
-                contentArea.innerHTML = renderOverviewContent(data);
-                break;
-            case "psychologists":
-                contentArea.innerHTML = renderPsychologistsContent(data.psychologists);
-                break;
-            case "patients":
-                contentArea.innerHTML = renderPatientsContent(data.patients);
-                break;
-            case "appointments":
-                contentArea.innerHTML = renderAppointmentsContent(data.appointments);
-                break;
-            default:
-                contentArea.innerHTML = "<p class='text-center text-red-500'>Aba não encontrada.</p>";
-        }
-        
-    } catch (e) {
-        console.error("Erro detalhado na renderização do conteúdo:", e);
-        contentArea.innerHTML = renderErrorState(e);
+    } else {
+        // 3. Se não houver usuário logado, vai para a tela de login
+        currentPage = 'login';
     }
-}
 
+    // 4. Renderiza a aplicação com base no novo estado
+    render();
+});
 
-// ============================================================
-// 5. FUNÇÕES DE BANCO DE DADOS
-//    Refatoradas para usar a tabela 'profiles' corretamente
-// ============================================================
-
-/**
- * Retorna todos os perfis com a role 'psychologist'.
- */
-async function fetchPsychologists() {
-    if (!supabaseClient) throw new Error("Supabase not initialized");
-    console.log("Fetching psychologists...");
-    const { data, error } = await supabaseClient
-        .from("profiles")
-        .select("*")
-        .eq("role", "psychologist")
-        .order("created_at", { ascending: false });
-
-    if (error) {
-        console.error("fetchPsychologists error:", error.message);
-        // Retorna um array vazio e registra o erro, mas não lança o erro para evitar quebrar a UI
-        return []; 
-    }
-    return data;
-}
-
-/**
- * Retorna todos os perfis com a role 'patient'.
- */
-async function fetchPatients() {
-    if (!supabaseClient) throw new Error("Supabase not initialized");
-    console.log("Fetching patients...");
-    const { data, error } = await supabaseClient
-        .from("profiles")
-        .select("*")
-        .eq("role", "patient")
-        .order("created_at", { ascending: false });
-
-    if (error) {
-        console.error("fetchPatients error:", error.message);
-        return [];
-    }
-    return data;
-}
-
-/**
- * Retorna todos os agendamentos, ordenados.
- */
-async function fetchAppointments() {
-    if (!supabaseClient) throw new Error("Supabase not initialized");
-    console.log("Fetching appointments...");
-    
-    // Tentativa de COUNT para o dashboard
-    const { count, error: countError } = await supabaseClient
-        .from("appointments")
-        .select("*", { count: 'exact', head: true });
-    
-    if (countError) {
-        console.warn("Aviso: Nao foi possivel contar a tabela 'appointments'. Mensagem:", countError.message);
-    }
-    
-    // Consulta principal
-    const { data, error } = await supabaseClient
-        .from("appointments")
-        // NOTE: Adicionei o join do perfil de pagamento (payments) para fins de relatórios futuros
-        .select("*, patient:patient_id(full_name), psychologist:psychologist_id(full_name, crp), payments(*)") 
-        .order("created_at", { ascending: false });
-
-    if (error) {
-        console.error("fetchAppointments error:", error.message);
-        return [];
-    }
-    return data;
-}
-
-/**
- * Função unificada para carregar todos os dados do dashboard.
- */
-async function loadDashboardData() {
-    try {
-        const psychologists = await fetchPsychologists();
-        const patients = await fetchPatients();
-        const appointments = await fetchAppointments();
-        
-        // Cálculo de Receita Total (Apenas de agendamentos com pagamento "completed")
-        const confirmedAppointments = (appointments || []).filter(a => 
-            a.payments && a.payments.length > 0 && 
-            a.payments.some(p => p.payment_status === 'completed')
-        );
-        const totalRev = confirmedAppointments.reduce((sum, a) => sum + parseFloat(a.value || 0), 0);
-        
-        // Agendamentos pendentes
-        const pendingAppointmentsCount = (appointments || []).filter(a => a.status === 'pending').length;
-
-        return {
-            psychologists,
-            patients,
-            appointments,
-            totalRevenue: totalRev.toFixed(2),
-            psyCount: psychologists.length,
-            patientCount: patients.length,
-            apptCount: appointments.length,
-            pendingAppointmentsCount
-        };
-    } catch (e) {
-        console.error("Erro ao carregar dados do dashboard:", e);
-        // Retorna dados zerados em caso de falha grave
-        return {
-            psychologists: [], patients: [], appointments: [], 
-            totalRevenue: "0.00", psyCount: 0, patientCount: 0, apptCount: 0,
-            error: true
-        };
-    }
-}
-
-/**
- * Aprova um psicólogo (muda status para 'approved').
- */
-async function approvePsychologist(id) {
-    if (!supabaseClient) throw new Error("Supabase not initialized");
-    
-    // 1. Mensagem de Confirmação antes de prosseguir
-    const confirmMessage = `Tem certeza que deseja aprovar o psicólogo com ID: ${id.substring(0, 8)}...? Ele(a) terá acesso ao sistema.`;
-    
-    // Não podemos usar window.confirm() embutido no Iframe.
-    // Vamos simular com uma chamada de console e assumir 'sim' por enquanto.
-    console.warn(`Aprovação pendente: ${confirmMessage} (Assumindo SIM para fins de demonstração.)`);
-
-    // Implementação da atualização do banco
-    const { error } = await supabaseClient
-        .from("profiles")
-        .update({ status: "approved" })
-        .eq("id", id);
-        
-    if (error) {
-        console.error("Erro ao aprovar psicólogo:", error);
-        alert(`Erro ao aprovar: ${error.message}`);
-        return false;
-    }
-    
-    // Após a aprovação, recarrega o conteúdo da aba Psicólogos
-    alert("Psicólogo aprovado com sucesso!");
-    renderAdminContent();
-    return true;
-}
-
-
-// ============================================================
-// 6. FUNÇÕES DE RENDERIZAÇÃO DE PÁGINAS / SHELLS
-// ============================================================
-
-/**
- * Renderiza a tela de Login (Simulação).
- */
-function renderLogin() {
-    return `
-        <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-            <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
-                <h1 class="text-3xl font-bold text-center text-purple-700 mb-6">PsiOnline Admin</h1>
-                <p class="text-center text-gray-600 mb-8">Simulação de Login para Administrador</p>
-                <button 
-                    onclick="handleAdminLogin()" 
-                    class="w-full bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 transition duration-300 shadow-md hover:shadow-lg"
-                >
-                    Entrar como Administrador (Simulação)
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-/**
- * Renderiza o esqueleto (shell) da área administrativa.
- */
-function renderAdminShell() {
-    // TABS: overview, psychologists, patients, appointments
-    const tabClass = (tab) => currentAdminTab === tab ? "bg-purple-700 text-white" : "text-purple-600 hover:bg-purple-100";
-    
-    return `
-        <div class="min-h-screen bg-gray-50 flex flex-col">
-            <!-- Header -->
-            <header class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
-                <h2 class="text-2xl font-bold text-purple-700">Painel de Administração</h2>
-                <div class="flex items-center space-x-4">
-                    <span class="text-gray-600 font-medium">Admin ID: ${currentUser ? currentUser.uid.substring(0, 8) : 'N/A'}</span>
-                    <button onclick="handleLogout()" class="text-red-500 hover:text-red-700 font-semibold transition duration-150">
-                        Sair
-                    </button>
-                </div>
-            </header>
-            
-            <!-- Tabs Navigation -->
-            <div class="bg-white border-b border-gray-200 p-2 sticky top-[68px] z-10">
-                <nav class="flex space-x-2 max-w-7xl mx-auto">
-                    <button onclick="changeAdminTab('overview')" class="px-4 py-2 rounded-lg font-medium ${tabClass('overview')}">Visão Geral</button>
-                    <button onclick="changeAdminTab('psychologists')" class="px-4 py-2 rounded-lg font-medium ${tabClass('psychologists')}">Psicólogos</button>
-                    <button onclick="changeAdminTab('patients')" class="px-4 py-2 rounded-lg font-medium ${tabClass('patients')}">Pacientes</button>
-                    <button onclick="changeAdminTab('appointments')" class="px-4 py-2 rounded-lg font-medium ${tabClass('appointments')}">Agendamentos</button>
-                </nav>
-            </div>
-            
-            <!-- Main Content Area -->
-            <main id="admin-content" class="flex-grow p-4 md:p-8 max-w-7xl mx-auto w-full">
-                <!-- O conteúdo específico da aba será carregado aqui por renderAdminContent() -->
-            </main>
-        </div>
-    `;
-}
-
-
-// ============================================================
-// 7. FUNÇÕES DE RENDERIZAÇÃO DE CONTEÚDO POR ABA (DETALHES)
-// ============================================================
-
-/**
- * Renderiza o conteúdo da aba Visão Geral (Overview).
- */
-function renderOverviewContent(data) {
-    return `
-        <h3 class="text-3xl font-extrabold text-gray-800 mb-6 border-b pb-2">Visão Geral</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            ${renderMetricCard("Psicólogos Cadastrados", data.psyCount, "bg-blue-100 text-blue-800", "Users")}
-            ${renderMetricCard("Pacientes Cadastrados", data.patientCount, "bg-green-100 text-green-800", "Users")}
-            ${renderMetricCard("Agendamentos Pendentes", data.pendingAppointmentsCount, "bg-yellow-100 text-yellow-800", "Calendar")}
-            ${renderMetricCard("Receita Total (R$)", data.totalRevenue, "bg-purple-100 text-purple-800", "DollarSign")}
-        </div>
-        
-        <h4 class="text-2xl font-bold text-gray-700 mt-10 mb-4">Psicólogos Pendentes (${data.psychologists.filter(p => p.status === 'pending').length})</h4>
-        ${data.psychologists.filter(p => p.status === 'pending').length > 0
-            ? renderPsychologistList(data.psychologists.filter(p => p.status === 'pending'), true)
-            : "<p class='text-gray-500 p-4 border rounded-lg bg-white'>Nenhum psicólogo pendente no momento. Tudo em dia!</p>"
-        }
-    `;
-}
-
-/**
- * Renderiza um card de métrica.
- */
-function renderMetricCard(title, value, colorClass, iconName) {
-    // Icone placeholder simples (substitua por SVG se necessário)
-    const icon = {
-        Users: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
-        Calendar: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
-        DollarSign: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`
-    };
-
-    return `
-        <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100 transform hover:scale-[1.02] transition duration-300">
-            <div class="flex items-center space-x-4">
-                <div class="p-3 rounded-full ${colorClass} bg-opacity-70">
-                    ${icon[iconName] || '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>'}
-                </div>
-                <div>
-                    <p class="text-sm font-medium text-gray-500">${title}</p>
-                    <p class="text-3xl font-bold text-gray-900">${value}</p>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-/**
- * Renderiza o conteúdo da aba Psicólogos.
- */
-function renderPsychologistsContent(psychologists) {
-    const pending = psychologists.filter(p => p.status === 'pending');
-    const approved = psychologists.filter(p => p.status === 'approved');
-
-    return `
-        <h3 class="text-3xl font-extrabold text-gray-800 mb-8 border-b pb-2">Gestão de Psicólogos</h3>
-        
-        <!-- Psicólogos Pendentes -->
-        <div class="mb-12">
-            <h4 class="text-2xl font-bold text-gray-700 mb-4 flex items-center">
-                Aprovações Pendentes <span class="ml-3 px-3 py-1 text-sm font-semibold rounded-full bg-yellow-100 text-yellow-700">${pending.length}</span>
-            </h4>
-            ${pending.length > 0 
-                ? renderPsychologistList(pending, true) 
-                : "<p class='text-gray-500 p-4 border rounded-lg bg-white'>Nenhuma solicitação de psicólogo pendente no momento.</p>"
-            }
-        </div>
-
-        <!-- Psicólogos Aprovados -->
-        <div>
-            <h4 class="text-2xl font-bold text-gray-700 mb-4 flex items-center">
-                Psicólogos Aprovados <span class="ml-3 px-3 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-700">${approved.length}</span>
-            </h4>
-            ${approved.length > 0 
-                ? renderPsychologistList(approved, false) 
-                : "<p class='text-gray-500 p-4 border rounded-lg bg-white'>Nenhum psicólogo aprovado ainda.</p>"
-            }
-        </div>
-    `;
-}
-
-/**
- * Helper para renderizar a lista de psicólogos (Tabela).
- */
-function renderPsychologistList(list, showApproveButton) {
-    if (list.length === 0) return '';
-    
-    return `
-        <div class="overflow-x-auto bg-white rounded-xl shadow-lg">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CRP</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                        ${showApproveButton ? '<th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>' : ''}
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    ${list.map(p => `
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${p.full_name || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${p.email || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${p.crp || 'Não informado'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}">
-                                    ${p.status === 'pending' ? 'Pendente' : 'Aprovado'}
-                                </span>
-                            </td>
-                            ${showApproveButton ? `
-                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <button 
-                                        onclick="approvePsychologist('${p.id}')" 
-                                        class="text-green-600 hover:text-green-900 font-semibold transition duration-150"
-                                    >
-                                        Aprovar
-                                    </button>
-                                </td>
-                            ` : ''}
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
-
-/**
- * Renderiza o conteúdo da aba Pacientes.
- */
-function renderPatientsContent(patients) {
-    return `
-        <h3 class="text-3xl font-extrabold text-gray-800 mb-8 border-b pb-2">Lista de Pacientes</h3>
-        <p class="text-gray-600 mb-6">Total de Pacientes: ${patients.length}</p>
-        
-        <div class="overflow-x-auto bg-white rounded-xl shadow-lg">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome Completo</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    ${patients.map(p => `
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${p.full_name || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${p.email || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                    Ativo
-                                </span>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
-/**
- * Renderiza o conteúdo da aba Agendamentos.
- */
-function renderAppointmentsContent(appointments) {
-    return `
-        <h3 class="text-3xl font-extrabold text-gray-800 mb-8 border-b pb-2">Agendamentos Recentes</h3>
-        <p class="text-gray-600 mb-6">Total de Agendamentos: ${appointments.length}</p>
-
-        <div class="overflow-x-auto bg-white rounded-xl shadow-lg">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data/Hora</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paciente</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Psicólogo (CRP)</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor (R$)</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    ${appointments.map(a => {
-                        const date = new Date(a.scheduled_date + 'T' + a.scheduled_time);
-                        const formattedDate = date.toLocaleDateString('pt-BR');
-                        const formattedTime = a.scheduled_time.substring(0, 5);
-                        
-                        let statusColor = 'bg-gray-100 text-gray-800';
-                        if (a.status === 'confirmed') statusColor = 'bg-green-100 text-green-800';
-                        if (a.status === 'pending') statusColor = 'bg-yellow-100 text-yellow-800';
-                        if (a.status === 'canceled') statusColor = 'bg-red-100 text-red-800';
-                        
-                        // Determinar o status do pagamento
-                        const paymentStatus = a.payments && a.payments.length > 0 
-                            ? a.payments[0].payment_status // Pega o status do primeiro pagamento
-                            : 'N/A';
-
-                        return `
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate} às ${formattedTime}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.patient?.full_name || 'Paciente Não Encontrado'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.psychologist?.full_name || 'Psicólogo Não Encontrado'} (${a.psychologist?.crp || 'N/A'})</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${parseFloat(a.value).toFixed(2)} (${paymentStatus})</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">
-                                    ${a.status.charAt(0).toUpperCase() + a.status.slice(1)}
-                                </span>
-                            </td>
-                        </tr>
-                        `;
-                    }).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
-
-/**
- * Renderiza o estado de erro.
- */
-function renderErrorState(error) {
-    let errorMessage = "Ocorreu um erro desconhecido ao carregar os dados.";
-    if (error && error.message) {
-        // Tentativa de limpar o erro para o usuário
-        const msg = error.message.replace(/Postgrest error /i, '');
-        errorMessage = `Detalhe: ${msg}`;
-    }
-    
-    return `
-        <div class="p-8 bg-red-50 border border-red-200 rounded-xl text-center shadow-lg">
-            <h3 class="text-2xl font-bold text-red-700 mb-3">Falha ao Carregar Dados</h3>
-            <p class="text-red-600 mb-4">${errorMessage}</p>
-            <p class="text-sm text-red-500 mb-6">
-                <strong>Sugestão:</strong> Verifique se as tabelas <code>profiles</code> e <code>appointments</code> existem e se o RLS
-                permite a leitura (select) para a role <code>anon</code> ou para o seu usuário logado.
-            </p>
-            <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150">
-                Tentar Novamente
-            </button>
-        </div>
-    `;
-}
-
-
-// ============================================================
-// 8. INICIALIZAÇÃO
-//    A função de inicialização chama render(), que agora está definida acima.
-// ============================================================
-
-/**
- * Função de inicialização principal.
- */
-function init() {
-    console.log("SUCESSO: app.js carregado. Iniciando renderização...");
-    render(); 
-}
+// Inicializa a renderização na primeira carga (o listener de auth fará a renderização final)
+render();
 
 // Inicia a aplicação após o carregamento do script
 init();
+
