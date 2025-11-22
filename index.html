@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Psionline - Painel Admin</title>
     
-    <!-- Importando Tailwind CSS e Supabase -->
+    <!-- Importando Tailwind CSS (Aesthetic is crucial) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
+    
     <style>
+        /* Estilização para o efeito de vidro/neblina no login */
         .glass {
             background: rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(10px);
@@ -20,42 +20,42 @@
 <body class="bg-gray-100 font-sans">
 
     <!-- Container Principal da Aplicação -->
-    <div id="app"></div>
+    <div id="app">
+        <!-- O conteúdo será preenchido pelo JavaScript (função render) -->
+        <div class="flex justify-center items-center h-screen text-gray-500">
+            Carregando sistema...
+        </div>
+    </div>
 
+    <!-- 
+        ================================================================
+        CARREGAMENTO DOS SCRIPTS EXTERNOS (ORDEM É IMPORTANTE)
+        ================================================================
+    -->
+    
+    <!-- 1. Importa a biblioteca oficial do Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- 2. Carrega as configurações do Supabase e funções de Auth e Navegação -->
+    <script src="auth.js"></script>
+
+    <!-- 3. Carrega as funções de Database/CRUD e o renderizador de conteúdo Admin -->
+    <script src="database.js"></script>
+
+    <!-- 4. Script para iniciar a aplicação ao carregar a página -->
     <script>
-        // ============================================================
-        // 1. CONFIGURAÇÃO E INICIALIZAÇÃO DO SUPABASE
-        // ============================================================
-        
-        // **IMPORTANTE**: Use os seus valores exatos. Eu mantive os que você estava usando.
-        const supabaseUrl = 'https://jhcylgeukoiomydgppxc.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
-
-        let supabase;
-        let authReady = false; 
-
         document.addEventListener('DOMContentLoaded', () => {
-            try {
-                if (!window.supabase) throw new Error("A biblioteca do Supabase não foi carregada.");
-                
-                // Inicializa a conexão
-                supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
-                authReady = true; 
-                render(); 
-            } catch (error) {
-                document.getElementById('app').innerHTML = `<div class="p-10 text-red-600 font-bold">Erro fatal: Não foi possível conectar ao Supabase. ${error.message}</div>`;
+            // A função render() está definida em auth.js e inicia a aplicação na página 'login'.
+            if (typeof render === 'function') {
+                render();
+            } else {
+                console.error("A função 'render' não foi definida em auth.js.");
+                document.getElementById('app').innerHTML = "<p class='p-10 text-center text-red-500'>Erro crítico de inicialização: `render` ausente.</p>";
             }
         });
-
-        // ============================================================
-        // 2. ESTADO GLOBAL E NAVEGAÇÃO
-        // ============================================================
-        
-        let currentPage = "login";
-        let adminTab = "dashboard"; 
-
-        function navigate(page) {
-            currentPage = page;
+    </script>
+</body>
+</html>
             render();
         }
 
@@ -385,4 +385,5 @@
 
     </script>
 </body>
+
 </html>
