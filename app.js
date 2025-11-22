@@ -174,14 +174,14 @@ async function renderAdminContent() {
             `;
 
         } catch (error) {
-            // Linha 425 no log original
+            // Linha 425 no log original (o erro que você está vendo)
             console.error("Erro ao carregar perfis:", error);
             
             mainContent.innerHTML = `
                 <div class="p-6 bg-red-50 border border-red-200 rounded-xl text-center">
                     <p class="font-bold text-red-700 mb-3">Falha ao Carregar Perfis (Erro)</p>
                     <p class="text-sm text-red-600 mb-4">
-                        O código foi corrigido para usar a coluna correta <code>full_name</code>. Se você ainda vir esta mensagem de erro, verifique se a política RLS para <code>profiles</code> permite que o usuário autenticado (`auth.uid()`) faça `SELECT`.
+                        Parece que o código que está rodando ainda não está usando a coluna correta (<code>full_name</code>), OU a política RLS (Row Level Security) não está permitindo o acesso. Verifique a política RLS para a tabela <code>profiles</code> no seu painel Supabase.
                     </p>
                     <button onclick="renderAdminContent()" class="px-5 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition duration-150">
                         Tentar Novamente
