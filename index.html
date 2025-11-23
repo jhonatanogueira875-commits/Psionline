@@ -58,8 +58,11 @@
                     </div>
                 </div>
             `;
-            return;
+            // IMPORTANTE: O 'return' global foi removido daqui, resolvendo o SyntaxError.
         }
+
+        // Se appModule não foi carregado, a execução falhará aqui, o que é seguro.
+        if (!appModule) return; 
 
         // 2. Extrai as funções essenciais
         const { render, setCurrentPage, setCurrentSession, supabaseClient } = appModule;
@@ -83,21 +86,19 @@
         console.log("✔ DOM Carregado. Iniciando monitoramento de autenticação...");
 
         // 3. Inicia o monitoramento de autenticação do Supabase
-        // O Supabase usa um listener de estado de autenticação semelhante ao Firebase
         supabaseClient.auth.onAuthStateChange((event, session) => {
             console.log(`Auth state mudou: Evento: ${event}, Sessão: ${session ? 'Ativa' : 'Nula'}`);
             
             setCurrentSession(session); // Atualiza o estado da sessão no app.js
             
+            // Decisão de qual página renderizar
             if (session) {
-                // Se o usuário estiver logado
                 setCurrentPage('admin');
             } else {
-                // Se o usuário não estiver logado
                 setCurrentPage('login');
             }
 
-            // Esta é a renderização APÓS o estado de auth ser resolvido.
+            // Renderização APÓS o estado de auth ser resolvido.
             if (typeof render === 'function') {
                 console.log("Função render() encontrada. Iniciando renderização final.");
                 render(); 
