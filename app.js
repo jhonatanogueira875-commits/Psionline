@@ -2,7 +2,7 @@
    Cards, gráfico de barras (atendimentos por mês),
    gráfico de linhas (novos usuários por mês) e
    lista de próximos agendamentos.
-   REVISADO: Removido 'return' ilegal no escopo global.
+   REVISADO: Garantia de acesso global para funções 'onclick'.
 */
 
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
@@ -94,6 +94,7 @@ function renderLogin() {
 }
 
 function renderAdminShell() {
+  // As chamadas 'onclick' agora usam 'window.appModule.funcao' para garantir acesso global
   return `
     <div class="min-h-screen flex flex-col">
         <!-- Header -->
@@ -404,8 +405,7 @@ function render() {
   }
 }
 
-// O bloco de eventos do formulário de login deve ser adicionado via listener de evento
-// global, pois o formulário é recriado a cada renderização da página de login.
+// O bloco de eventos do formulário de login precisa ser um listener de evento global.
 document.addEventListener('submit', async (e) => {
     if (e.target && e.target.id === 'login-form') {
         e.preventDefault();
@@ -427,8 +427,7 @@ document.addEventListener('submit', async (e) => {
 
 
 // Coloca as funções que precisam ser chamadas pelo index.html ou no HTML inline no objeto global window.appModule
-// Isso resolve o problema de funções chamadas via onclick em string HTML, que não conseguem acessar
-// variáveis exportadas de um módulo.
+// Isso é necessário porque funções exportadas de módulos não são acessíveis via 'onclick' em strings HTML simples.
 window.appModule = {
     render, 
     setCurrentPage, 
