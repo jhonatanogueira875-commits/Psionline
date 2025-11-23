@@ -6,11 +6,10 @@
     <title>Psionline - Painel Admin</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN (Necessário para o dashboard) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <!-- Supabase Client Library (DEVE SER O PRIMEIRO SCRIPT JS) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Chart.js CDN (REQUERIDO PARA OS GRÁFICOS DO DASHBOARD) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-
     <!-- Estilos customizados -->
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -28,45 +27,85 @@
         <!-- Conteúdo inicial - Loader -->
         <div class="flex justify-center items-center h-screen bg-gray-50">
             <div class="flex items-center p-8 rounded-xl bg-white shadow-xl">
-                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600"></div>
-                <p class="text-lg text-gray-600 ml-4">Iniciando Painel...</p>
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mr-4"></div>
+                <span class="text-lg font-medium text-gray-700">Iniciando aplicação...</span>
             </div>
         </div>
     </div>
 
-    <!-- Script Unificado com toda a lógica (APENAS app.js) -->
-    <!-- REMOVIDO 'defer' para garantir a ordem de execução SÍNCRONA antes do script inline -->
-    <script src="app.js"></script> 
-    
-    <script>
-        // O código agora deve ser executado APÓS a execução síncrona de app.js
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log("✔ DOM Carregado. Iniciando autenticação...");
-            // Verifica se a função 'render' existe, que é definida no app.js.
-            if (typeof render === 'function') {
-                console.log("Função render() encontrada. Iniciando renderização...");
-                // A função initializeApp que chama o listener onAuthStateChange é chamada no window.onload (final de app.js)
-            } else {
-                console.error("ERRO CRÍTICO: app.js não carregado. Verifique a aba 'Network' (Rede) e o Console.");
-                
-                // Mensagem de falha para o usuário
-                document.getElementById('app').innerHTML = `
-                    <div class="flex justify-center items-center h-screen bg-red-100">
-                        <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
-                            <p class="font-bold text-xl mb-3">🚨 Falha Crítica na Inicialização 🚨</p>
-                            <p class="text-base mb-4">
-                                O arquivo <code>app.js</code> não foi carregado corretamente. Isso pode ser um problema de 
-                                **letras maiúsculas/minúsculas** ou um **erro de sintaxe**.
-                            </p>
-                            <p class="text-sm text-red-600 font-mono">
-                                **VERIFIQUE:** O nome do arquivo no seu repositório deve ser <strong>exatamente</strong> 
-                                <code>app.js</code> (minúsculas).
-                            </p>
-                        </div>
+    <!-- Script de Inicialização -->
+    <script type="module">
+        
+        // 1. Carrega o app.js como um módulo
+        let appModule;
+        try {
+            // O caminho './app.js' é obrigatório.
+            appModule = await import('./app.js');
+        } catch (e) {
+            console.error("ERRO CRÍTICO: Falha ao carregar app.js.", e);
+            // Mensagem de falha para o usuário
+            document.getElementById('app').innerHTML = `
+                <div class="flex justify-center items-center h-screen bg-red-100">
+                    <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
+                        <p class="font-bold text-xl mb-3">🚨 Falha Crítica na Inicialização 🚨</p>
+                        <p class="text-base mb-4">
+                            O arquivo <code>app.js</code> não foi carregado corretamente. Verifique se o nome do arquivo é
+                            <strong>exatamente</strong> <code>app.js</code> e se não há erros de sintaxe.
+                        </p>
+                        <p class="text-sm text-red-600 font-mono">
+                            Detalhe: ${e.message}
+                        </p>
                     </div>
-                `;
+                </div>
+            `;
+            return;
+        }
+
+        // 2. Extrai as funções essenciais
+        const { render, setCurrentPage, setCurrentSession, supabaseClient } = appModule;
+        
+        // Verifica se o cliente Supabase está disponível
+        if (!supabaseClient) {
+            console.error("ERRO: Cliente Supabase não está disponível.");
+            document.getElementById('app').innerHTML = `
+                <div class="flex justify-center items-center h-screen bg-red-100">
+                    <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
+                        <p class="font-bold text-xl mb-3">🚨 Configuração Inválida 🚨</p>
+                        <p class="text-base mb-4">
+                            O cliente do Supabase não foi inicializado corretamente no <code>app.js</code>.
+                        </p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        console.log("✔ DOM Carregado. Iniciando monitoramento de autenticação...");
+
+        // 3. Inicia o monitoramento de autenticação do Supabase
+        // O Supabase usa um listener de estado de autenticação semelhante ao Firebase
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            console.log(`Auth state mudou: Evento: ${event}, Sessão: ${session ? 'Ativa' : 'Nula'}`);
+            
+            setCurrentSession(session); // Atualiza o estado da sessão no app.js
+            
+            if (session) {
+                // Se o usuário estiver logado
+                setCurrentPage('admin');
+            } else {
+                // Se o usuário não estiver logado
+                setCurrentPage('login');
+            }
+
+            // Esta é a renderização APÓS o estado de auth ser resolvido.
+            if (typeof render === 'function') {
+                console.log("Função render() encontrada. Iniciando renderização final.");
+                render(); 
+            } else {
+                console.error("ERRO CRÍTICO: função render() não está acessível no módulo app.js.");
             }
         });
+
     </script>
 </body>
 </html>
