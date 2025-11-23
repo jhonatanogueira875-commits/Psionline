@@ -8,8 +8,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase Client Library (DEVE SER O PRIMEIRO SCRIPT JS) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Chart.js CDN (Para gráficos do Dashboard) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Chart.js CDN (REQUERIDO PARA OS GRÁFICOS DO DASHBOARD) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
     <!-- Estilos customizados -->
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -27,24 +28,24 @@
         <!-- Conteúdo inicial - Loader -->
         <div class="flex justify-center items-center h-screen bg-gray-50">
             <div class="flex items-center p-8 rounded-xl bg-white shadow-xl">
-                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
-                <p class="ml-4 text-lg text-gray-700">Carregando aplicação...</p>
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600"></div>
+                <p class="text-lg text-gray-600 ml-4">Iniciando Painel...</p>
             </div>
         </div>
     </div>
 
-    <!-- SEUS SCRIPTS -->
-    <script src="app.js"></script>
+    <!-- Script Unificado com toda a lógica (APENAS app.js) -->
+    <!-- REMOVIDO 'defer' para garantir a ordem de execução SÍNCRONA antes do script inline -->
+    <script src="app.js"></script> 
     
     <script>
-        // Quando a página (DOM) estiver totalmente carregada
+        // O código agora deve ser executado APÓS a execução síncrona de app.js
         document.addEventListener('DOMContentLoaded', () => {
             console.log("✔ DOM Carregado. Iniciando autenticação...");
-            // Verifica se a função render() foi definida pelo app.js
+            // Verifica se a função 'render' existe, que é definida no app.js.
             if (typeof render === 'function') {
                 console.log("Função render() encontrada. Iniciando renderização...");
-                // Aqui chamamos o render se o script app.js carregou.
-                render(); 
+                // A função initializeApp que chama o listener onAuthStateChange é chamada no window.onload (final de app.js)
             } else {
                 console.error("ERRO CRÍTICO: app.js não carregado. Verifique a aba 'Network' (Rede) e o Console.");
                 
