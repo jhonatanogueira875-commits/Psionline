@@ -1,58 +1,56 @@
-// app.js
+async function handleLogin(event) {
+  event.preventDefault();
 
-document.addEventListener('DOMContentLoaded', () => {
-  console.log("✔ DOM Carregado e app.js inicializado");
-
-  const loginForm = document.getElementById('loginForm');
-  const loginMessage = document.getElementById('loginMessage'); // div para mensagens de erro
-
-  if (loginForm) {
-    loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      await handleLogin();
-    });
-  }
-});
-
-// Função de login
-async function handleLogin() {
-  const email = document.getElementById('email').value;
-  const password = document.getElementById('password').value;
-
-  // Limpa mensagens anteriores
-  const loginMessage = document.getElementById('loginMessage');
-  loginMessage.innerText = '';
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+  const loginMessage = document.getElementById("loginMessage");
 
   try {
-    // Tenta logar no Supabase
-    const { data, error } = await supabase.auth.signInWithPassword({
+    // Tentar logar no Supabase
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
-      password
+      password,
     });
 
-    if (error) {
-      console.error("Erro de login/permissão:", error);
-      loginMessage.innerText = "⚠️ Login inválido. Verifique email e senha.";
+    if (authError) {
+      console.error("Erro de login/permissão:", authError);
+      loginMessage.innerText = "⚠️ Credenciais inválidas.";
       return;
     }
 
-    console.log("Login realizado:", data);
+    const userId = authData.user.id;
 
-    // Verifica se é admin (pode comentar para teste)
-    const isAdmin = data.user?.role === 'admin'; // ajuste conforme seu schema
-    if (!isAdmin) {
-      console.warn("Acesso restrito a administradores. Permitido apenas para teste.");
-      loginMessage.innerText = "⚠️ Você não é admin. Acesso restrito, mas permitindo teste.";
-      // Comente esta linha se quiser bloquear realmente:
-      // return;
+    // Buscar função do usuário de forma segura
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle(); // retorna null se não achar
+
+    if (userError) {
+      console.error("Erro ao buscar função do usuário:", userError);
+      loginMessage.innerText = "⚠️ Erro ao verificar função do usuário.";
+      return;
     }
 
-    // Redireciona ou inicializa painel
-    loginMessage.innerText = "✅ Login bem-sucedido!";
-    // iniciarPainel(); // função que carrega o painel
+    // Verificar se o usuário existe e é admin
+    if (!userData) {
+      loginMessage.innerText = "⚠️ Usuário não encontrado.";
+      return;
+    }
 
-  } catch (err) {
-    console.error("Erro inesperado:", err);
-    loginMessage.innerText = "⚠️ Erro inesperado. Veja console para detalhes.";
+    if (userData.role !== "admin") {
+      loginMessage.innerText = "⚠️ Acesso negado. Apenas administradores podem acessar este painel.";
+      return;
+    }
+
+    // Login e permissão OK
+    console.log("✔ Usuário admin logado com sucesso!");
+    loginMessage.innerText = "✔ Login bem-sucedido!";
+    // redirecionar ou inicializar painel...
+    
+  } catch (error) {
+    console.error("Erro inesperado no login:", error);
+    loginMessage.innerText = "⚠️ Ocorreu um erro inesperado. Tente novamente.";
   }
 }
