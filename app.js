@@ -19,7 +19,6 @@ export function setCurrentPage(newPage) {
     currentPage = newPage;
     render();
 }
-// export function setCurrentSession(session) { currentAuthSession = session; } 
 export function changeAdminTab(tab) {
     currentAdminTab = tab;
     render();
@@ -33,6 +32,7 @@ export async function handleLogin(email, password) {
         const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
         
+        // Sucesso no login, define a página para 'admin'
         setCurrentPage('admin'); 
     } catch (e) {
         const msg = document.getElementById('login-message');
@@ -52,7 +52,7 @@ export async function handleLogout() {
 
 async function checkInitialSession() {
     try {
-        // ESSENCIAL: Verifica a sessão para definir a página inicial
+        // Verifica a sessão para definir a página inicial
         const { data: { session } } = await supabaseClient.auth.getSession();
         
         if (session) {
@@ -124,6 +124,7 @@ export function renderAdminShell() {
             </div>
         </header>
         <main id="admin-content" class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            <!-- Conteúdo da aba será injetado aqui pelo renderAdminContent -->
             <div class="text-center p-10">
                 <div class="animate-pulse text-gray-500">Carregando conteúdo da aba...</div>
             </div>
@@ -136,15 +137,15 @@ export function renderAdminShell() {
     Renderização - Conteúdo de Abas (Com Data Fetching)
 ------------------------- */
 
-// Renderiza o conteúdo da aba correta
+// Renderiza o conteúdo da aba correta, chamando a função assíncrona
 export function renderAdminContent() {
     const main = document.getElementById('admin-content');
     if (!main) return;
 
     if (currentAdminTab === 'dashboard') {
-        renderDashboardContent(main);
+        renderDashboardContent(main); // Chama a função assíncrona
     } else if (currentAdminTab === 'users') {
-        renderUsersContent(main);
+        renderUsersContent(main); // Chama a função assíncrona
     } else {
         main.innerHTML = `<p class="text-center text-red-500">Aba não encontrada.</p>`;
     }
@@ -154,7 +155,7 @@ export function renderAdminContent() {
 // Dashboard - Carregamento Assíncrono
 // ------------------------------------
 async function renderDashboardContent(mainElement) {
-    // Placeholder de carregamento (Skeleton loader)
+    // 1. Placeholder de carregamento imediato (o que você está vendo agora)
     mainElement.innerHTML = `
         <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 animate-pulse">
@@ -166,24 +167,22 @@ async function renderDashboardContent(mainElement) {
     `;
 
     try {
-        // 1. Obter Total de Usuários
+        // 2. Tenta buscar os dados
         const { count: totalUsers } = await supabaseClient
             .from('users')
             .select('*', { count: 'exact', head: true });
             
-        // 2. Obter Total de Psicólogos
         const { count: activePsychologists } = await supabaseClient
             .from('users')
             .select('*', { count: 'exact', head: true })
             .eq('role', 'psychologist'); 
 
-        // 3. Obter Total de Agendamentos Pendentes
         const { count: pendingAppointments } = await supabaseClient
             .from('appointments')
             .select('*', { count: 'exact', head: true })
             .eq('status', 'scheduled');
 
-        // Renderiza o conteúdo final com dados reais
+        // 3. Sucesso: Renderiza o conteúdo final
         mainElement.innerHTML = `
             <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -207,15 +206,18 @@ async function renderDashboardContent(mainElement) {
                 </div>
             </div>
         `;
+        // Garante que o Chart.js seja renderizado após o DOM
         setTimeout(renderDashboardChart, 100); 
 
     } catch (error) {
+        // 4. Falha: Renderiza a mensagem de erro detalhada
         console.error("Erro ao carregar dados do Dashboard:", error);
         mainElement.innerHTML = `
             <div class="p-8 bg-red-100 border border-red-400 text-red-700 rounded-lg shadow-xl mt-6">
                 <h2 class="text-2xl font-bold mb-3">🚨 Erro ao Carregar Métricas</h2>
-                <p>Verifique as regras de RLS nas tabelas 'users' e 'appointments'.</p>
-                <p class="mt-2 font-mono text-sm">Detalhe: ${error.message}</p>
+                <p>Ocorreu um erro na busca de dados. A causa mais comum é RLS (Row Level Security).</p>
+                <p><strong>Ação Obrigatória:</strong> Verifique as regras de RLS nas tabelas 'users' e 'appointments' do seu projeto Supabase.</p>
+                <p class="mt-2 font-mono text-sm">Detalhe do Erro: ${error.message}</p>
             </div>
         `;
     }
@@ -225,6 +227,7 @@ async function renderDashboardContent(mainElement) {
 // Usuários - Carregamento Assíncrono
 // ------------------------------------
 async function renderUsersContent(mainElement) {
+    // 1. Placeholder de carregamento imediato
     mainElement.innerHTML = `
         <h2 class="text-3xl font-bold text-gray-800 mb-6">Lista de Usuários</h2>
         <div class="overflow-x-auto bg-white rounded-xl shadow-xl p-8 text-center text-gray-500">
@@ -234,6 +237,7 @@ async function renderUsersContent(mainElement) {
     `;
 
     try {
+        // 2. Tenta buscar os dados
         const { data: users, error } = await supabaseClient
             .from('users')
             .select('id, full_name, email, role, created_at, status')
@@ -274,6 +278,7 @@ async function renderUsersContent(mainElement) {
             `;
         }).join('');
 
+        // 3. Sucesso: Renderiza a tabela com dados reais
         mainElement.innerHTML = `
             <h2 class="text-3xl font-bold text-gray-800 mb-6">Lista de Usuários (${users.length} encontrados)</h2>
             <div class="overflow-x-auto bg-white rounded-xl shadow-xl">
@@ -295,12 +300,14 @@ async function renderUsersContent(mainElement) {
         `;
 
     } catch (error) {
+        // 4. Falha: Renderiza a mensagem de erro detalhada
         console.error("Erro ao carregar lista de usuários:", error);
         mainElement.innerHTML = `
             <div class="p-8 bg-red-100 border border-red-400 text-red-700 rounded-lg shadow-xl mt-6">
                 <h2 class="text-2xl font-bold mb-3">🚨 Erro ao Carregar Usuários</h2>
-                <p>Verifique a conexão e as regras de RLS (Row Level Security) na tabela 'users'.</p>
-                <p class="mt-2 font-mono text-sm">Detalhe: ${error.message}</p>
+                <p>Ocorreu um erro na busca de dados. A causa mais comum é RLS (Row Level Security).</p>
+                <p><strong>Ação Obrigatória:</strong> Verifique a conexão e as regras de RLS na tabela 'users'.</p>
+                <p class="mt-2 font-mono text-sm">Detalhe do Erro: ${error.message}</p>
             </div>
         `;
     }
@@ -308,7 +315,7 @@ async function renderUsersContent(mainElement) {
 
 
 /* -------------------------
-    Gráficos e Listeners
+    Gráficos e Listeners (Mantidos do código anterior)
 ------------------------- */
 
 function renderDashboardChart() {
@@ -390,7 +397,7 @@ export function render() {
     if (initialLoader) initialLoader.remove();
 
     if (currentPage === 'loading') {
-        app.innerHTML = renderLoading(); // Mostra o loader interno se o init não terminou
+        app.innerHTML = renderLoading(); 
     } else if (currentPage === 'login') {
         app.innerHTML = renderLogin();
         attachLoginListener(); 
