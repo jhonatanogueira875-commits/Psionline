@@ -1,35 +1,50 @@
-// ============================
-// app.js - Versão organizada
-// ============================
+// app.js
 
-// 1️⃣ Inicializar Supabase - apenas uma instância global
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+document.addEventListener("DOMContentLoaded", async () => {
+  console.log("✔ DOM Carregado e app.js inicializado");
 
-const SUPABASE_URL = "https://SEU_SUPABASE_URL.supabase.co";
-const SUPABASE_KEY = "SUA_SUPABASE_ANON_KEY";
+  try {
+    const user = await getUser();
+    if (!user) {
+      console.warn("Nenhum usuário logado.");
+      return;
+    }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log("Usuário logado:", user);
 
-// ============================
-// 2️⃣ Funções de Autenticação
-// ============================
+    // Verifica se o usuário é admin
+    const isAdmin = await checkAdminRole(user.id);
+    if (!isAdmin) {
+      console.error("Acesso negado. Apenas administradores podem acessar este painel.");
+      // Exibir mensagem na tela em vez de travar
+      document.getElementById("alerta-permissao").textContent =
+        "Acesso negado: apenas administradores podem acessar este painel.";
+      return;
+    }
 
-// Login de usuário
-async function handleLogin(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+    console.log("Acesso admin autorizado!");
+    // Inicializa funções do painel aqui
+    initDashboard();
 
+  } catch (err) {
+    console.error("Erro ao buscar função do usuário:", err);
+    document.getElementById("alerta-permissao").textContent =
+      "Erro ao verificar login/permissão. Confira o console.";
+  }
+});
+
+// Função simulada para pegar usuário logado
+async function getUser() {
+  // Aqui você chama a Supabase ou seu backend
+  const { data, error } = await supabase.auth.getUser();
   if (error) {
-    console.error("Erro no login:", error.message);
+    console.error("Erro ao buscar usuário:", error);
     return null;
   }
-
   return data.user;
 }
 
-// Verifica se usuário é admin
+// Função para verificar role admin
 async function checkAdminRole(userId) {
   const { data, error } = await supabase
     .from("users")
@@ -38,143 +53,16 @@ async function checkAdminRole(userId) {
     .single();
 
   if (error) {
-    console.error("Erro ao verificar role:", error.message);
-    return null;
+    console.error("Erro ao buscar role do usuário:", error);
+    return false;
   }
 
+  console.log("Role do usuário:", data.role);
   return data.role === "admin";
 }
 
-// ============================
-// 3️⃣ Funções de Dashboard
-// ============================
-
-// Contagem total de usuários (RLS precisa permitir leitura para admin)
-async function fetchUserCount() {
-  const { count, error } = await supabase
-    .from("users")
-    .select("*", { count: "exact", head: true });
-
-  if (error) {
-    console.error("Erro ao buscar usuários:", error.message);
-    return 0;
-  }
-
-  return count;
+// Inicialização do painel
+function initDashboard() {
+  console.log("Painel carregado com sucesso!");
+  // Coloque aqui suas funções de dashboard
 }
-
-// Últimos usuários cadastrados
-async function fetchRecentUsers(limit = 5) {
-  const { data, error } = await supabase
-    .from("users")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.error("Erro ao buscar usuários recentes:", error.message);
-    return [];
-  }
-
-  return data;
-}
-
-// Contagem total de agendamentos
-async function fetchAppointmentCount() {
-  const { count, error } = await supabase
-    .from("appointments")
-    .select("*", { count: "exact", head: true });
-
-  if (error) {
-    console.error("Erro ao buscar agendamentos:", error.message);
-    return 0;
-  }
-
-  return count;
-}
-
-// Últimos agendamentos
-async function fetchRecentAppointments(limit = 5) {
-  const { data, error } = await supabase
-    .from("appointments")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.error("Erro ao buscar agendamentos recentes:", error.message);
-    return [];
-  }
-
-  return data;
-}
-
-// ============================
-// 4️⃣ Função de envio de email via Brevo
-// ============================
-
-async function sendEmail(toEmail, subject, htmlContent) {
-  const BREVO_API_KEY = "SUA_API_KEY_BREVO";
-
-  try {
-    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "api-key": BREVO_API_KEY,
-      },
-      body: JSON.stringify({
-        sender: { name: "PsiOnline", email: "noreply@psionline.com" },
-        to: [{ email: toEmail }],
-        subject,
-        htmlContent,
-      }),
-    });
-
-    const result = await res.json();
-    console.log("Email enviado:", result);
-    return result;
-  } catch (err) {
-    console.error("Erro ao enviar email:", err);
-    return null;
-  }
-}
-
-// ============================
-// 5️⃣ Exemplo de uso
-// ============================
-
-async function initDashboard() {
-  const user = await handleLogin("admin@psionline.com", "SENHA");
-
-  if (!user) return;
-
-  const isAdmin = await checkAdminRole(user.id);
-  if (!isAdmin) {
-    alert("Você não tem permissão para acessar o dashboard!");
-    return;
-  }
-
-  // Exibir contagens
-  const userCount = await fetchUserCount();
-  const appointmentCount = await fetchAppointmentCount();
-  console.log("Usuários:", userCount);
-  console.log("Agendamentos:", appointmentCount);
-
-  // Exibir últimos registros
-  const recentUsers = await fetchRecentUsers();
-  const recentAppointments = await fetchRecentAppointments();
-  console.log("Últimos usuários:", recentUsers);
-  console.log("Últimos agendamentos:", recentAppointments);
-
-  // Teste de envio de email
-  await sendEmail(
-    "teste@dominio.com",
-    "Bem-vindo ao PsiOnline!",
-    "<p>Seu cadastro foi realizado com sucesso.</p>"
-  );
-}
-
-// Inicializa dashboard
-initDashboard();
