@@ -1,4 +1,5 @@
-// app.js
+// app.js - Versão para uso direto no navegador
+
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
@@ -11,6 +12,7 @@ let currentAdminTab = 'dashboard';
    Controle de página/aba
 ------------------------- */
 function setCurrentPage(newPage) { currentPage = newPage; }
+function setCurrentSession(session) {} // placeholder se precisar
 function changeAdminTab(tab) { currentAdminTab = tab; render(); }
 
 /* -------------------------
@@ -186,7 +188,36 @@ document.addEventListener('submit', async e=>{
 });
 
 /* -------------------------
-   Render inicial
+   Render principal
 ------------------------- */
-window.appModule = { render, setCurrentPage, changeAdminTab, handleLogin, handleLogout };
+function render() {
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    if (currentPage==='login') {
+        app.innerHTML = renderLogin();
+    } else if (currentPage==='admin') {
+        app.innerHTML = renderAdminShell();
+        renderAdminContent();
+        attachAdminListeners();
+    } else {
+        app.innerHTML = `<p>Página desconhecida</p>`;
+    }
+}
+
+/* -------------------------
+   Exposição global
+------------------------- */
+window.appModule = {
+    render,
+    setCurrentPage,
+    setCurrentSession,
+    handleLogin,
+    handleLogout,
+    changeAdminTab,
+    renderAdminContent,
+    supabaseClient
+};
+
+// Render inicial
 render();
