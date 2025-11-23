@@ -1,68 +1,58 @@
 // app.js
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener('DOMContentLoaded', () => {
   console.log("✔ DOM Carregado e app.js inicializado");
 
-  try {
-    const user = await getUser();
-    if (!user) {
-      console.warn("Nenhum usuário logado.");
-      return;
-    }
+  const loginForm = document.getElementById('loginForm');
+  const loginMessage = document.getElementById('loginMessage'); // div para mensagens de erro
 
-    console.log("Usuário logado:", user);
-
-    // Verifica se o usuário é admin
-    const isAdmin = await checkAdminRole(user.id);
-    if (!isAdmin) {
-      console.error("Acesso negado. Apenas administradores podem acessar este painel.");
-      // Exibir mensagem na tela em vez de travar
-      document.getElementById("alerta-permissao").textContent =
-        "Acesso negado: apenas administradores podem acessar este painel.";
-      return;
-    }
-
-    console.log("Acesso admin autorizado!");
-    // Inicializa funções do painel aqui
-    initDashboard();
-
-  } catch (err) {
-    console.error("Erro ao buscar função do usuário:", err);
-    document.getElementById("alerta-permissao").textContent =
-      "Erro ao verificar login/permissão. Confira o console.";
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await handleLogin();
+    });
   }
 });
 
-// Função simulada para pegar usuário logado
-async function getUser() {
-  // Aqui você chama a Supabase ou seu backend
-  const { data, error } = await supabase.auth.getUser();
-  if (error) {
-    console.error("Erro ao buscar usuário:", error);
-    return null;
+// Função de login
+async function handleLogin() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  // Limpa mensagens anteriores
+  const loginMessage = document.getElementById('loginMessage');
+  loginMessage.innerText = '';
+
+  try {
+    // Tenta logar no Supabase
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) {
+      console.error("Erro de login/permissão:", error);
+      loginMessage.innerText = "⚠️ Login inválido. Verifique email e senha.";
+      return;
+    }
+
+    console.log("Login realizado:", data);
+
+    // Verifica se é admin (pode comentar para teste)
+    const isAdmin = data.user?.role === 'admin'; // ajuste conforme seu schema
+    if (!isAdmin) {
+      console.warn("Acesso restrito a administradores. Permitido apenas para teste.");
+      loginMessage.innerText = "⚠️ Você não é admin. Acesso restrito, mas permitindo teste.";
+      // Comente esta linha se quiser bloquear realmente:
+      // return;
+    }
+
+    // Redireciona ou inicializa painel
+    loginMessage.innerText = "✅ Login bem-sucedido!";
+    // iniciarPainel(); // função que carrega o painel
+
+  } catch (err) {
+    console.error("Erro inesperado:", err);
+    loginMessage.innerText = "⚠️ Erro inesperado. Veja console para detalhes.";
   }
-  return data.user;
-}
-
-// Função para verificar role admin
-async function checkAdminRole(userId) {
-  const { data, error } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", userId)
-    .single();
-
-  if (error) {
-    console.error("Erro ao buscar role do usuário:", error);
-    return false;
-  }
-
-  console.log("Role do usuário:", data.role);
-  return data.role === "admin";
-}
-
-// Inicialização do painel
-function initDashboard() {
-  console.log("Painel carregado com sucesso!");
-  // Coloque aqui suas funções de dashboard
 }
