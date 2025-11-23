@@ -1,20 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { Settings, User, Briefcase, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { Settings, User, Briefcase, CheckCircle, AlertTriangle, Loader2, Home, Users, PlusCircle, Link } from 'lucide-react';
 
 // --- CONFIGURAÇÃO DE VARIÁVEIS DO AMBIENTE ---
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-// ----------------------
-// FIREBASE & AUTH SETUP
-// ----------------------
+// --- FIREBASE SETUP ---
 let app, db, auth;
 let isFirebaseInitialized = false;
-
 if (Object.keys(firebaseConfig).length > 0) {
     try {
         app = initializeApp(firebaseConfig);
@@ -26,31 +23,29 @@ if (Object.keys(firebaseConfig).length > 0) {
     }
 }
 
-// Helper para construir o caminho do documento do perfil (Coleção pública para perfis)
+// Helpers
 const getProfileDocRef = (userId) => {
     if (!db || !userId) return null;
-    // Caminho público para Perfis: /artifacts/{appId}/public/data/users/{userId}
     return doc(db, 'artifacts', appId, 'public', 'data', 'users', userId);
 };
-
-// ----------------------
-// COMPONENTE PRINCIPAL (App)
-// ----------------------
+const getConnectionsCollectionRef = () => {
+    if (!db) return null;
+    return collection(db, 'artifacts', appId, 'public', 'data', 'connections');
+};
 
 const App = () => {
-    // Estados de controle de autenticação e carregamento
+    // Estados
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [currentUserId, setCurrentUserId] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
-    
-    // Estados de dados do perfil
     const [profile, setProfile] = useState(null);
-    const [role, setRole] = useState(''); // 'psicologo' ou 'paciente'
+    const [role, setRole] = useState('');
     const [name, setName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [view, setView] = useState('profile');
 
-    // Função de utilidade para mostrar notificações
+    // --- Função de mensagens ---
     const showMessage = (message, type = 'info') => {
         const box = document.getElementById('notification-box');
         if (box) {
@@ -59,13 +54,11 @@ const App = () => {
                 type === 'error' ? 'bg-red-500 text-white' : type === 'success' ? 'bg-green-500 text-white' : 'bg-indigo-500 text-white'
             }`;
             box.classList.remove('hidden');
-            setTimeout(() => {
-                box.classList.add('hidden');
-            }, 5000);
+            setTimeout(() => box.classList.add('hidden'), 5000);
         }
     };
 
-    // 2. Carregar o perfil do Firestore
+    // --- Carregar perfil ---
     const loadUserProfile = useCallback(async (userId) => {
         if (!userId || !db) return;
         try {
@@ -73,39 +66,40 @@ const App = () => {
             if (docRef) {
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
-                    setProfile(docSnap.data());
-                    setRole(docSnap.data().role || '');
-                    setName(docSnap.data().name || '');
+                    const data = docSnap.data();
+                    setProfile(data);
+                    setRole(data.role || '');
+                    setName(data.name || '');
+                    setView(data.role === 'psicologo' ? 'dashboard' : 'patient_app');
                 } else {
                     setProfile(null);
+                    setView('profile');
                 }
             }
         } catch (e) {
             console.error("Erro ao carregar perfil:", e);
             showMessage("Erro ao carregar perfil.", 'error');
+            setView('profile');
         } finally {
             setIsLoading(false);
         }
     }, []);
 
-    // 1. EFEITO DE AUTENTICAÇÃO: Realiza o login e configura o ouvinte.
+    // --- Autenticação ---
     useEffect(() => {
         if (!isFirebaseInitialized) {
-            setError("Firebase não está configurado. Verifique a configuração.");
+            setError("Firebase não está configurado.");
             setIsLoading(false);
             return;
         }
 
         const authenticate = async () => {
             try {
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
+                else await signInAnonymously(auth);
             } catch (e) {
                 console.error("Erro na autenticação:", e);
-                setError("Falha na autenticação. Tente recarregar.");
+                setError("Falha na autenticação.");
                 setIsLoading(false);
             }
         };
@@ -116,28 +110,23 @@ const App = () => {
                 setIsAuthReady(true);
                 loadUserProfile(user.uid);
             } else {
-                // Tenta autenticar se não houver usuário logado
-                if (!currentUserId && !error) {
-                    authenticate();
-                } else {
+                if (!currentUserId && !error) authenticate();
+                else {
                     setIsAuthReady(true);
                     setIsLoading(false);
                 }
             }
         });
-
         return () => unsubscribe();
     }, [loadUserProfile, currentUserId, error]);
 
-    // 3. Salvar o perfil no Firestore
+    // --- Salvar perfil ---
     const saveUserProfile = async (e) => {
         e.preventDefault();
-
         if (!currentUserId || !name.trim() || !role) {
             showMessage("Preencha o nome e selecione um papel.", 'error');
             return;
         }
-
         setIsSaving(true);
         try {
             const docRef = getProfileDocRef(currentUserId);
@@ -147,23 +136,22 @@ const App = () => {
                     name: name.trim(),
                     role: role,
                     updatedAt: serverTimestamp(),
-                    createdAt: profile?.createdAt || serverTimestamp(), // Mantém o original se existir
+                    createdAt: profile?.createdAt || serverTimestamp(),
                 };
-
                 await setDoc(docRef, profileData);
                 setProfile(profileData);
                 showMessage(`Perfil salvo como "${role}" com sucesso!`, 'success');
+                setView(role === 'psicologo' ? 'dashboard' : 'patient_app');
             }
         } catch (e) {
             console.error("Erro ao salvar perfil:", e);
-            showMessage("Erro ao salvar perfil. Tente novamente.", 'error');
+            showMessage("Erro ao salvar perfil.", 'error');
         } finally {
             setIsSaving(false);
         }
     };
 
-    // --- Componentes de UI ---
-
+    // --- Componentes ---
     const LoadingState = () => (
         <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-2xl">
             <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-4" />
@@ -179,79 +167,12 @@ const App = () => {
         </div>
     );
 
-    const ProfileRegistrationForm = () => (
-        <div className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-indigo-600">
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Bem-vindo(a) ao PsicoConnect</h2>
-            <p className="text-gray-500 mb-6">Por favor, complete seu perfil para continuar.</p>
-
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Seu ID Único de Usuário (Importante!)</label>
-                <code className="text-sm text-indigo-700 break-all p-1 bg-white rounded shadow-inner inline-block">
-                    {currentUserId || 'Aguardando ID...'}
-                </code>
-            </div>
-
-            <form onSubmit={saveUserProfile}>
-                <div className="mb-4">
-                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Seu Nome / Nome de Usuário</label>
-                    <input
-                        type="text"
-                        id="name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Ex: Dra. Ana Silva ou João da Silva"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"
-                        required
-                        disabled={isSaving}
-                    />
-                </div>
-
-                <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Qual é o seu papel?</label>
-                    <div className="flex space-x-4">
-                        <RoleOption
-                            icon={Briefcase}
-                            roleKey="psicologo"
-                            label="Psicólogo(a)"
-                            selectedRole={role}
-                            onSelect={setRole}
-                            disabled={isSaving}
-                        />
-                        <RoleOption
-                            icon={User}
-                            roleKey="paciente"
-                            label="Paciente"
-                            selectedRole={role}
-                            onSelect={setRole}
-                            disabled={isSaving}
-                        />
-                    </div>
-                </div>
-
-                <button
-                    type="submit"
-                    className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center disabled:bg-indigo-400"
-                    disabled={isSaving || !currentUserId || !role || !name.trim()}
-                >
-                    {isSaving ? (
-                        <>
-                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                            Salvando Perfil...
-                        </>
-                    ) : (
-                        'Salvar e Continuar'
-                    )}
-                </button>
-            </form>
-        </div>
-    );
-
-    const RoleOption = ({ icon: Icon, roleKey, label, selectedRole, onSelect, disabled }) => {
+    const RoleOption = React.memo(({ icon: Icon, roleKey, label, selectedRole, onSelect, disabled }) => {
         const isSelected = selectedRole === roleKey;
         return (
             <button
                 type="button"
-                onClick={() => onSelect(roleKey)}
+                onClick={() => !disabled && onSelect(roleKey)}
                 className={`flex-1 p-4 border-2 rounded-xl text-center transition duration-200 ${
                     isSelected
                         ? 'border-indigo-600 bg-indigo-50 shadow-md ring-4 ring-indigo-200'
@@ -263,71 +184,150 @@ const App = () => {
                 <span className="font-semibold text-sm">{label}</span>
             </button>
         );
+    });
+
+    const DetailRow = ({ icon: Icon, label, value, isCode = false }) => {
+        const handleCopy = () => {
+            if (value) {
+                const el = document.createElement('textarea');
+                el.value = value;
+                document.body.appendChild(el);
+                el.select();
+                try { document.execCommand('copy'); showMessage("ID copiado!", 'success'); } 
+                catch { showMessage("Não foi possível copiar.", 'error'); }
+                document.body.removeChild(el);
+            }
+        };
+        return (
+            <div className="flex items-center p-3 bg-gray-50 rounded-lg">
+                <Icon className="w-5 h-5 text-indigo-500 mr-3" />
+                <div className="flex-1">
+                    <p className="text-xs font-semibold text-gray-500">{label}</p>
+                    {isCode ? <code className="text-sm text-gray-800 break-all">{value}</code> : <p className="text-sm font-medium text-gray-800">{value}</p>}
+                </div>
+                {isCode && (
+                    <button onClick={handleCopy} className="p-1 ml-2 text-indigo-600 hover:bg-indigo-200 rounded-full transition duration-150" title="Copiar ID">
+                        <PlusCircle className="w-4 h-4" />
+                    </button>
+                )}
+            </div>
+        );
     };
+
+    // --- Telas ---
+    const ProfileRegistrationForm = () => (
+        <div className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-indigo-600">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Bem-vindo(a) ao PsicoConnect</h2>
+            <p className="text-gray-500 mb-6">Complete seu perfil.</p>
+            <form onSubmit={saveUserProfile}>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Seu nome" 
+                    className="w-full p-3 border border-gray-300 rounded-lg mb-4" required disabled={isSaving} />
+                <div className="flex space-x-4 mb-4">
+                    <RoleOption icon={Briefcase} roleKey="psicologo" label="Psicólogo(a)" selectedRole={role} onSelect={setRole} disabled={isSaving}/>
+                    <RoleOption icon={User} roleKey="paciente" label="Paciente" selectedRole={role} onSelect={setRole} disabled={isSaving}/>
+                </div>
+                <button type="submit" disabled={isSaving || !name || !role} 
+                    className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg">{isSaving ? 'Salvando...' : 'Salvar e Continuar'}</button>
+            </form>
+        </div>
+    );
 
     const ProfileView = () => (
         <div className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-green-600">
-            <div className="flex items-center mb-6">
-                <CheckCircle className="w-8 h-8 text-green-600 mr-3" />
-                <h2 className="text-3xl font-extrabold text-gray-900">Perfil Registrado!</h2>
-            </div>
-            <p className="text-gray-600 mb-6">
-                Você já está registrado como **{profile.role === 'psicologo' ? 'Psicólogo(a)' : 'Paciente'}** e pronto para usar o PsicoConnect.
-            </p>
-
-            <div className="space-y-4">
-                <DetailRow icon={User} label="Nome" value={profile.name} />
-                <DetailRow icon={Settings} label="Papel" value={profile.role.charAt(0).toUpperCase() + profile.role.slice(1)} />
-                <DetailRow icon={Briefcase} label="Seu ID" value={profile.userId} isCode={true} />
-            </div>
-
-            <p className="mt-8 text-sm text-gray-500 border-t pt-4">
-                {profile.role === 'psicologo'
-                    ? "Compartilhe seu ID com pacientes para que eles possam se conectar com você no aplicativo do paciente."
-                    : "Compartilhe este ID com seu psicólogo para que ele possa acompanhar seu progresso no dashboard."
-                }
-            </p>
-            <button
-                onClick={() => setProfile(null)}
-                className="w-full mt-4 py-2 text-indigo-600 font-semibold border border-indigo-600 rounded-lg hover:bg-indigo-50 transition duration-300"
-            >
-                Mudar Perfil
-            </button>
+            <CheckCircle className="w-8 h-8 text-green-600 mb-4" />
+            <p className="text-gray-600 mb-6">Você está registrado como <b>{profile.name}</b> ({profile.role})</p>
+            <DetailRow icon={User} label="Nome" value={profile.name} />
+            <DetailRow icon={Settings} label="Papel" value={profile.role} />
+            <DetailRow icon={Briefcase} label="ID" value={profile.userId} isCode />
+            <button onClick={() => setView(profile.role==='psicologo'?'dashboard':'patient_app')} 
+                className="w-full mt-4 py-3 bg-indigo-600 text-white font-bold rounded-lg">Acessar Aplicativo</button>
+            <button onClick={() => setProfile(null)} className="w-full mt-2 py-2 text-indigo-600 border border-indigo-600 rounded-lg">Mudar Papel</button>
         </div>
     );
 
-    const DetailRow = ({ icon: Icon, label, value, isCode = false }) => (
-        <div className="flex items-center p-3 bg-gray-50 rounded-lg">
-            <Icon className="w-5 h-5 text-indigo-500 mr-3" />
-            <div className="flex-1">
-                <p className="text-xs font-semibold text-gray-500">{label}</p>
-                {isCode ? (
-                    <code className="text-sm text-gray-800 break-all">{value}</code>
-                ) : (
-                    <p className="text-sm font-medium text-gray-800">{value}</p>
-                )}
-            </div>
+    const PatientApp = () => (
+        <div className="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-blue-600 text-center">
+            <h2 className="text-3xl font-extrabold text-blue-700 mb-4">Aplicativo do Paciente</h2>
+            <p className="text-gray-600">Olá, {profile?.name}. Esta é sua tela de registro.</p>
+            <button onClick={() => setView('profile')} className="mt-6 py-2 px-4 border border-blue-600 rounded-lg">Voltar</button>
         </div>
     );
 
-    // --- Renderização Principal ---
+    // --- Dashboard do Psicólogo ---
+    const PsicologoDashboard = () => {
+        const [patientIdInput, setPatientIdInput] = useState('');
+        const [isConnecting, setIsConnecting] = useState(false);
+        const [patients, setPatients] = useState([]);
+        const trimmedId = patientIdInput.trim();
+        const isValidId = trimmedId.length === 36 && trimmedId.includes('-');
+
+        // Ouve conexões
+        useEffect(() => {
+            if (!currentUserId || !db) return;
+            const q = query(getConnectionsCollectionRef(), where("psicologoId","==",currentUserId));
+            const unsub = onSnapshot(q, async snap => {
+                const conns = await Promise.all(snap.docs.map(async d => {
+                    const pdata = await getDoc(getProfileDocRef(d.data().pacienteId));
+                    return pdata.exists()? {...d.data(), id:d.id, name:pdata.data().name} : null;
+                }));
+                setPatients(conns.filter(c=>c!==null));
+            });
+            return ()=>unsub();
+        }, [currentUserId]);
+
+        const handleConnectPatient = async e => {
+            e.preventDefault();
+            if(!isValidId || trimmedId===currentUserId){showMessage("ID inválido", "error"); return;}
+            setIsConnecting(true);
+            try{
+                const pSnap = await getDoc(getProfileDocRef(trimmedId));
+                if(!pSnap.exists()){showMessage("Paciente não encontrado","error");return;}
+                if(pSnap.data().role!=="paciente"){showMessage("O usuário não é paciente","error");return;}
+                await setDoc(doc(getConnectionsCollectionRef(),`${currentUserId}_${trimmedId}`),{
+                    psicologoId:currentUserId,
+                    pacienteId:trimmedId,
+                    pacienteName:pSnap.data().name,
+                    createdAt:serverTimestamp()
+                }, {merge:true});
+                showMessage(`Paciente "${pSnap.data().name}" conectado!`,"success");
+                setPatientIdInput('');
+            }catch(e){console.error(e);showMessage("Falha ao conectar paciente","error");}
+            finally{setIsConnecting(false);}
+        };
+
+        return (
+            <div className="w-full min-h-screen p-8 max-w-6xl mx-auto">
+                <h1 className="text-4xl font-bold text-indigo-700 mb-6">Dashboard de {profile?.name}</h1>
+                <form onSubmit={handleConnectPatient} className="mb-6">
+                    <input type="text" placeholder="ID do paciente" value={patientIdInput} onChange={e=>setPatientIdInput(e.target.value)} 
+                        className="border p-3 rounded w-full mb-2" disabled={isConnecting}/>
+                    <button type="submit" disabled={!isValidId || isConnecting} className="bg-indigo-600 text-white py-2 px-4 rounded">
+                        {isConnecting ? 'Conectando...' : 'Conectar Paciente'}
+                    </button>
+                </form>
+                <div className="space-y-2">
+                    {patients.map(p=>(
+                        <div key={p.id} className="p-2 border rounded">{p.name} ({p.pacienteId})</div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    // --- Renderização ---
     let content;
-
-    if (error) {
-        content = <ErrorState />;
-    } else if (isLoading || !isAuthReady) {
-        content = <LoadingState />;
-    } else if (profile && profile.role) {
-        content = <ProfileView />;
-    } else {
-        content = <ProfileRegistrationForm />;
-    }
+    let isCentered = true;
+    if(error) content=<ErrorState />;
+    else if(isLoading || !isAuthReady) content=<LoadingState />;
+    else if(view==='profile' && !profile) content=<ProfileRegistrationForm />;
+    else if(view==='profile' && profile) content=<ProfileView />;
+    else if(profile?.role==='psicologo' && view==='dashboard'){content=<PsicologoDashboard />;isCentered=false;}
+    else if(profile?.role==='paciente' && view==='patient_app') content=<PatientApp />;
+    else content=<ProfileView />;
 
     return (
-        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-            {/* Notificação de Status (Toast) */}
-            <div id="notification-box" className="hidden"></div>
-            
+        <div className={`min-h-screen bg-gray-100 p-4 ${isCentered?'flex items-center justify-center':'pt-8'}`}>
+            <div id="notification-box" className="absolute top-4 right-4 hidden"></div>
             {content}
         </div>
     );
