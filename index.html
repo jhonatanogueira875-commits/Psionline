@@ -1,538 +1,214 @@
-<!--
-  Painel de Administração para Aplicação Psi Online.
-  Este arquivo inclui todo o HTML, CSS (Tailwind) e JavaScript/Supabase.
-  Ele implementa:
-  1. Login com verificação de Role (Admin) via RLS no Supabase.
-  2. Carregamento condicional do dashboard se o usuário for 'admin'.
-  3. Recuperação de dados de usuários e agendamentos em tempo real.
-  4. Uso de Exponential Backoff nas chamadas da API do Supabase.
--->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel Admin - Psi Online</title>
-    <!-- Carregamento do Tailwind CSS para estilização -->
+    <title>Cadastro de Profissional</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Fonte Inter -->
+    <!-- Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f7f9fb;
-        }
-        /* Estilos de Botão Personalizados */
-        .btn-primary {
-            transition: all 0.2s;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .btn-primary:hover {
-            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
-            transform: translateY(-1px);
-        }
-        .card-shadow {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: #f7fafc;
         }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center">
+<body>
 
-    <!-- Conteúdo Principal - Visível após o carregamento do DOM -->
-    <div id="app" class="w-full max-w-7xl p-4 md:p-8" style="display:none;">
+    <div id="app" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-lg bg-white shadow-xl rounded-2xl p-8 space-y-6">
+            <h1 class="text-3xl font-bold text-center text-indigo-700">
+                Cadastro de Profissional
+            </h1>
+            <p class="text-center text-gray-500">
+                Preencha seus dados para criar sua conta de psicólogo.
+            </p>
 
-        <!-- Seção de Login (Inicialmente visível) -->
-        <section id="login-section" class="flex flex-col items-center justify-center min-h-screen">
-            <div class="w-full max-w-md bg-white p-8 rounded-xl card-shadow">
-                <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Acesso Administrativo</h2>
-                <form id="login-form" class="space-y-6">
-                    <div>
-                        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email:</label>
-                        <input type="email" id="email" name="email" required placeholder="admin@psionline.com"
-                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" value="jhonatanogueira875@gmail.com">
-                    </div>
-                    <div>
-                        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Senha:</label>
-                        <input type="password" id="password" name="password" required placeholder="••••••••"
-                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                    <button type="submit" id="login-btn"
-                        class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg btn-primary hover:bg-blue-700 disabled:bg-blue-400">
-                        Entrar
-                    </button>
-                    <p id="login-message" class="text-center text-sm font-medium mt-4"></p>
-                </form>
-            </div>
-        </section>
+            <form id="signupForm" class="space-y-4">
+                
+                <!-- Email -->
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+                    <input type="email" id="email" required autocomplete="email"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
 
-        <!-- Seção do Dashboard (Visível apenas para Admin) -->
-        <section id="dashboard-section" class="hidden">
-            <header class="flex justify-between items-center pb-6 border-b border-gray-200 mb-6">
-                <h1 class="text-4xl font-bold text-gray-800">Dashboard Administrativo</h1>
-                <button id="logout-btn"
-                    class="py-2 px-4 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition duration-150">
-                    Sair
+                <!-- Senha -->
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">Senha</label>
+                    <input type="password" id="password" required autocomplete="new-password"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+
+                <!-- Nome Completo -->
+                <div>
+                    <label for="fullName" class="block text-sm font-medium text-gray-700">Nome Completo</label>
+                    <input type="text" id="fullName" required
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+
+                <!-- CRP -->
+                <div>
+                    <label for="crp" class="block text-sm font-medium text-gray-700">Número do CRP (Conselho Regional de Psicologia)</label>
+                    <input type="text" id="crp" required
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                           placeholder="Ex: 06/123456">
+                </div>
+                
+                <!-- Especialidade -->
+                <div>
+                    <label for="specialty" class="block text-sm font-medium text-gray-700">Especialidade Principal</label>
+                    <select id="specialty" required
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        <option value="" disabled selected>Selecione uma especialidade</option>
+                        <option value="TCC">Terapia Cognitivo-Comportamental (TCC)</option>
+                        <option value="Psicanalise">Psicanálise</option>
+                        <option value="Humanista">Abordagem Humanista</option>
+                        <option value="Gestalt">Gestalt-Terapia</option>
+                        <option value="Outra">Outra</option>
+                    </select>
+                </div>
+
+                <!-- Botão de Cadastro -->
+                <button type="submit" id="submitButton"
+                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                    Cadastrar
                 </button>
-            </header>
+            </form>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                <!-- Card 1: Total de Usuários -->
-                <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-blue-500">
-                    <p class="text-sm font-medium text-gray-500">Total de Usuários</p>
-                    <p id="user-count" class="text-3xl font-bold text-gray-900 mt-1">0</p>
-                </div>
-                <!-- Card 2: Agendamentos Pendentes -->
-                <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-yellow-500">
-                    <p class="text-sm font-medium text-gray-500">Agendamentos Pendentes</p>
-                    <p id="pending-appointments" class="text-3xl font-bold text-gray-900 mt-1">0</p>
-                </div>
-                <!-- Card 3: Psícologos Ativos -->
-                <div class="bg-white p-6 rounded-xl card-shadow border-l-4 border-green-500">
-                    <p class="text-sm font-medium text-gray-500">Psicólogos Ativos</p>
-                    <p id="psychologist-count" class="text-3xl font-bold text-gray-900 mt-1">0</p>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Tabela de Últimos Agendamentos -->
-                <div class="bg-white p-6 rounded-xl card-shadow">
-                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Próximos Agendamentos</h3>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data/Hora</th>
-                                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente (ID)</th>
-                                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody id="appointments-list" class="bg-white divide-y divide-gray-200">
-                                <!-- Dados de Agendamentos aqui -->
-                                <tr><td colspan="3" class="px-3 py-4 text-sm text-gray-500 text-center">Carregando agendamentos...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Tabela de Últimos Usuários Registrados -->
-                <div class="bg-white p-6 rounded-xl card-shadow">
-                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Usuários Recentes</h3>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email (ID)</th>
-                                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Função</th>
-                                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
-                                </tr>
-                            </thead>
-                            <tbody id="users-list" class="bg-white divide-y divide-gray-200">
-                                <!-- Dados de Usuários aqui -->
-                                <tr><td colspan="3" class="px-3 py-4 text-sm text-gray-500 text-center">Carregando usuários...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
-        
-        <!-- Modal de Mensagem (em vez de alert()) -->
-        <div id="custom-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden items-center justify-center p-4">
-            <div class="bg-white p-6 rounded-lg max-w-sm w-full card-shadow">
-                <h3 id="modal-title" class="text-lg font-bold mb-3 text-red-600">Erro</h3>
-                <p id="modal-body" class="text-sm text-gray-700 mb-4">Mensagem de erro.</p>
-                <div class="flex justify-end">
-                    <button id="modal-close-btn" class="py-2 px-4 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition duration-150">
-                        Entendi
-                    </button>
-                </div>
-            </div>
+            <!-- Mensagens de Feedback -->
+            <div id="messageBox" class="text-center p-3 rounded-lg hidden"></div>
         </div>
-
     </div>
 
-    <!-- Scripts de Firebase/Supabase e Lógica da Aplicação -->
     <script type="module">
-        import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.44.3/+esm";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, getDocs, query, where, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Ativa o log de debug do Firestore
+        setLogLevel('Debug');
 
-        // Variáveis globais obrigatórias no ambiente Canvas (simulação local)
+        // --- Variáveis Globais de Configuração ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        // O Supabase não usa o firebaseConfig, mas é mantido por convenção.
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        // Configurações e Inicialização do Supabase
-        const SUPABASE_URL = firebaseConfig.projectId ? `https://${firebaseConfig.projectId}.supabase.co` : 'SUA_URL_SUPABASE_AQUI';
-        const SUPABASE_ANON_KEY = firebaseConfig.apiKey || 'SUA_CHAVE_ANON_AQUI';
+        // --- Inicialização do Firebase ---
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
 
-        // Verificação de URL e Chave para evitar erros de inicialização.
-        if (SUPABASE_URL.includes('SUA_URL_SUPABASE_AQUI') || SUPABASE_ANON_KEY.includes('SUA_CHAVE_ANON_AQUI')) {
-            console.error("ATENÇÃO: As credenciais do Supabase não foram configuradas. Verifique se __firebase_config foi injetado corretamente.");
-            // Usar valores de exemplo para evitar que o código quebre, mas o login falhará.
-            // Aqui, usamos um cliente fictício, mas o login real precisa das credenciais.
-            window.supabaseClient = null; 
-        } else {
-            window.supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // --- Referências de Elementos ---
+        const form = document.getElementById('signupForm');
+        const messageBox = document.getElementById('messageBox');
+        const submitButton = document.getElementById('submitButton');
+
+        // Função utilitária para mostrar mensagens
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.className = `text-center p-3 rounded-lg ${isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
+            messageBox.style.display = 'block';
         }
 
-        // Referências DOM
-        const loginSection = document.getElementById('login-section');
-        const dashboardSection = document.getElementById('dashboard-section');
-        const loginForm = document.getElementById('login-form');
-        const loginBtn = document.getElementById('login-btn');
-        const loginMessage = document.getElementById('login-message');
-        const logoutBtn = document.getElementById('logout-btn');
-        const appointmentsList = document.getElementById('appointments-list');
-        const usersList = document.getElementById('users-list');
-        const userCountElement = document.getElementById('user-count');
-        const pendingAppointmentsElement = document.getElementById('pending-appointments');
-        const psychologistCountElement = document.getElementById('psychologist-count');
-        const modal = document.getElementById('custom-modal');
-        const modalTitle = document.getElementById('modal-title');
-        const modalBody = document.getElementById('modal-body');
-        const modalCloseBtn = document.getElementById('modal-close-btn');
-
-        // --- Funções de Utilidade (Modal e RLS) ---
-
-        /**
-         * Exibe um modal personalizado em vez de alert().
-         * @param {string} title Título do modal.
-         * @param {string} message Corpo da mensagem.
-         */
-        const showCustomModal = (title, message, isError = true) => {
-            modalTitle.textContent = title;
-            modalBody.textContent = message;
-            modalTitle.className = isError ? 'text-lg font-bold mb-3 text-red-600' : 'text-lg font-bold mb-3 text-green-600';
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        };
-
-        modalCloseBtn.onclick = () => {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        };
-
-
-        /**
-         * Executa uma função com lógica de Exponential Backoff para retentar em caso de falha temporária.
-         * @param {Function} apiCall Função que retorna a Promise da chamada de API.
-         * @param {number} maxRetries Número máximo de retentativas.
-         * @returns {Promise<any>} O resultado da chamada de API bem-sucedida.
-         */
-        async function runWithBackoff(apiCall, maxRetries = 5) {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    const result = await apiCall();
-                    if (result.error && result.error.status && [406, 500].includes(result.error.status)) {
-                        // Tratar RLS (406) ou erro de servidor como falha, mas tentar novamente
-                        throw new Error(result.error.message || 'Erro temporário do servidor/RLS');
-                    }
-                    return result; // Retorna em sucesso
-                } catch (error) {
-                    // Se for a última tentativa, falhar.
-                    if (i === maxRetries - 1) {
-                        throw error;
-                    }
-                    // Calcular o tempo de espera: 2^i * 1000ms
-                    const delay = Math.pow(2, i) * 1000;
-                    // console.log(`Tentativa ${i + 1} falhou. Retentando em ${delay}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-        }
-
-        // --- Funções de Autenticação e Autorização ---
-
-        /**
-         * Verifica o papel (role) do usuário no banco de dados.
-         * REQUER RLS: A política de RLS 1 na tabela 'users' é crucial aqui.
-         * @param {string} user_id O ID (auth.uid) do usuário logado.
-         * @returns {Promise<string|null>} A função do usuário ('admin', 'psychologist', 'client') ou null.
-         */
-        async function checkAdminRole(user_id) {
-            if (!supabaseClient) return null;
-
+        // Função para autenticar com o token inicial (se disponível)
+        async function authenticateInitialUser() {
             try {
-                // Tenta buscar APENAS a role do usuário.
-                // A RLS Policy 1 (Allow authenticated to read own role) permite esta leitura.
-                const { data, error } = await runWithBackoff(() => 
-                    supabaseClient
-                        .from('users')
-                        .select('role') 
-                        .eq('id', user_id)
-                        .single()
-                );
-
-                if (error) {
-                    console.error("Erro ao buscar função do usuário:", error);
-                    return null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("Autenticação inicial bem-sucedida.");
+                } else {
+                    console.warn("Token de autenticação inicial não fornecido. O sistema pode depender de um usuário autenticado.");
                 }
-                
-                return data ? data.role : null;
-
             } catch (error) {
-                console.error("Erro ao buscar função do usuário (final após backoff):", error);
-                return null;
+                console.error("Erro ao realizar autenticação inicial:", error);
+                showMessage("Erro de autenticação inicial. Verifique o console.", true);
             }
         }
 
-
-        /**
-         * Lida com o processo de login, verificando credenciais e a função do usuário.
-         */
-        async function handleLogin(event) {
+        // --- Função Principal de Cadastro ---
+        async function handleSignUp(event) {
             event.preventDefault();
             
-            if (!supabaseClient) {
-                showCustomModal("Erro de Configuração", "O Supabase não foi inicializado. Verifique a configuração.");
-                return;
-            }
+            submitButton.disabled = true;
+            submitButton.textContent = 'Cadastrando...';
+            messageBox.style.display = 'none';
 
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            
-            loginBtn.disabled = true;
-            loginBtn.textContent = 'Verificando...';
-            loginMessage.textContent = '';
-            
-            try {
-                // 1. Tenta fazer login com as credenciais do Supabase Auth
-                const { data: authData, error: authError } = await runWithBackoff(() => 
-                    supabaseClient.auth.signInWithPassword({ email, password })
-                );
+            const fullName = document.getElementById('fullName').value;
+            const crp = document.getElementById('crp').value;
+            const specialty = document.getElementById('specialty').value;
 
-                if (authError) {
-                    // Erro 400 - Credenciais Inválidas
-                    throw new Error(authError.message || 'Invalid login credentials');
-                }
-                
-                const user = authData.user;
-                const role = await checkAdminRole(user.id);
-                
-                if (role !== 'admin') {
-                    // 2. Se a autenticação for OK, mas a função não for 'admin', deslogar e bloquear
-                    await supabaseClient.auth.signOut();
-                    throw new Error("Acesso negado. Apenas administradores podem acessar este painel.");
-                }
-
-                // Sucesso: Redirecionar para o dashboard
-                loginSection.classList.add('hidden');
-                dashboardSection.classList.remove('hidden');
-                
-                // Iniciar escutas do Dashboard
-                setupDashboardListeners();
-
-            } catch (error) {
-                console.error("Erro de login/permissão:", error);
-                const message = error.message.includes('Invalid login credentials') 
-                    ? "Credenciais inválidas. Verifique seu e-mail e senha." 
-                    : error.message;
-
-                loginMessage.textContent = message;
-                showCustomModal("Erro de Acesso", message);
-                
-            } finally {
-                loginBtn.disabled = false;
-                loginBtn.textContent = 'Entrar';
-            }
-        }
-
-        /**
-         * Lida com o processo de logout.
-         */
-        async function handleLogout() {
-            if (supabaseClient) {
-                await supabaseClient.auth.signOut();
-            }
-            // Limpar a UI e mostrar a seção de login
-            dashboardSection.classList.add('hidden');
-            loginSection.classList.remove('hidden');
-            location.reload(); // Recarrega para limpar listeners de onSnapshot
-        }
-
-        // --- Funções do Dashboard (Após o Login) ---
-
-        let userListener = null;
-        let appointmentListener = null;
-
-        /**
-         * Configura os listeners de real-time do Supabase.
-         * Estes listeners são protegidos pelas Políticas de RLS 2 e 3.
-         */
-        function setupDashboardListeners() {
-            if (!supabaseClient) return;
-
-            // ----------------------------------------------------
-            // Listener 1: Usuários
-            // RLS Policy 2 (Allow admin to read all users) protege este listener.
-            // ----------------------------------------------------
-            if (userListener) userListener.unsubscribe(); // Evita duplicação
-
-            const usersQuery = supabaseClient
-                .from('users')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            userListener = usersQuery.on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, (payload) => {
-                fetchUsers();
-            })
-            .subscribe();
-
-            fetchUsers(); // Chamada inicial
-
-            // ----------------------------------------------------
-            // Listener 2: Agendamentos
-            // RLS Policy 3 (Allow admin access to appointments) protege este listener.
-            // ----------------------------------------------------
-            if (appointmentListener) appointmentListener.unsubscribe(); // Evita duplicação
-
-            const appointmentsQuery = supabaseClient
-                .from('appointments')
-                .select('*')
-                .order('appointment_date', { ascending: true });
-
-            appointmentListener = appointmentsQuery.on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, (payload) => {
-                fetchAppointments();
-            })
-            .subscribe();
-
-            fetchAppointments(); // Chamada inicial
-        }
-
-        // Função para buscar e renderizar a lista de usuários
-        async function fetchUsers() {
-            try {
-                // RLS Policy 2 aplicada automaticamente aqui
-                const { data: users, error } = await runWithBackoff(() => 
-                    supabaseClient
-                        .from('users')
-                        .select('*')
-                        .order('created_at', { ascending: false })
-                        .limit(5)
-                );
-
-                if (error) {
-                    console.error("Erro ao carregar usuários:", error);
-                    usersList.innerHTML = `<tr><td colspan="3" class="px-3 py-4 text-sm text-red-500 text-center">Erro RLS/Carregamento: ${error.message}</td></tr>`;
-                    return;
-                }
-
-                userCountElement.textContent = users.length; // Contagem só do que foi buscado. (Idealmente seria uma RPC ou COUNT)
-                const psychologistCount = users.filter(u => u.role === 'psychologist').length;
-                psychologistCountElement.textContent = psychologistCount;
-
-                if (users.length === 0) {
-                    usersList.innerHTML = '<tr><td colspan="3" class="px-3 py-4 text-sm text-gray-500 text-center">Nenhum usuário encontrado.</td></tr>';
-                    return;
-                }
-
-                usersList.innerHTML = users.map(user => `
-                    <tr>
-                        <td class="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">${user.email} (${user.id.substring(0, 4)}...)</td>
-                        <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-700 capitalize">${user.role}</td>
-                        <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-700">${user.full_name || 'N/A'}</td>
-                    </tr>
-                `).join('');
-
-            } catch (error) {
-                 console.error("Falha ao buscar usuários (após backoff):", error);
-                 usersList.innerHTML = '<tr><td colspan="3" class="px-3 py-4 text-sm text-red-500 text-center">Falha crítica ao carregar dados.</td></tr>';
-            }
-        }
-
-        // Função para buscar e renderizar a lista de agendamentos
-        async function fetchAppointments() {
-            try {
-                // RLS Policy 3 aplicada automaticamente aqui
-                const { data: appointments, error } = await runWithBackoff(() => 
-                    supabaseClient
-                        .from('appointments')
-                        .select('*')
-                        .order('appointment_date', { ascending: true })
-                        .limit(5)
-                );
-
-                if (error) {
-                    console.error("Erro ao carregar agendamentos:", error);
-                    appointmentsList.innerHTML = `<tr><td colspan="3" class="px-3 py-4 text-sm text-red-500 text-center">Erro RLS/Carregamento: ${error.message}</td></tr>`;
-                    return;
-                }
-
-                const pendingCount = appointments.filter(a => a.status === 'pending').length;
-                pendingAppointmentsElement.textContent = pendingCount;
-
-                if (appointments.length === 0) {
-                    appointmentsList.innerHTML = '<tr><td colspan="3" class="px-3 py-4 text-sm text-gray-500 text-center">Nenhum agendamento encontrado.</td></tr>';
-                    return;
-                }
-
-                appointmentsList.innerHTML = appointments.map(appt => {
-                    const date = new Date(appt.appointment_date);
-                    const formattedDate = date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-                    const statusColor = appt.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800';
-
-                    return `
-                        <tr>
-                            <td class="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td>
-                            <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-700">${appt.client_user_id.substring(0, 8)}...</td>
-                            <td class="px-3 py-2 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor} capitalize">
-                                    ${appt.status}
-                                </span>
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
-
-            } catch (error) {
-                 console.error("Falha ao buscar agendamentos (após backoff):", error);
-                 appointmentsList.innerHTML = '<tr><td colspan="3" class="px-3 py-4 text-sm text-red-500 text-center">Falha crítica ao carregar dados.</td></tr>';
-            }
-        }
-
-
-        // --- Inicialização e Event Listeners ---
-
-        function initApp() {
-            document.getElementById('app').style.display = 'block'; // Mostrar conteúdo após o DOM
-            console.log("✔ DOM Carregado e app.js inicializado");
-
-            if (!supabaseClient) {
-                showCustomModal("Erro Crítico", "Supabase não inicializado. Verifique as variáveis de ambiente.", true);
+            if (!email || !password || !fullName || !crp || !specialty) {
+                showMessage("Por favor, preencha todos os campos.", true);
+                submitButton.disabled = false;
+                submitButton.textContent = 'Cadastrar';
                 return;
             }
 
-            // Listener de estado de autenticação (verifica se o usuário já está logado)
-            supabaseClient.auth.onAuthStateChange(async (event, session) => {
-                if (session) {
-                    const role = await checkAdminRole(session.user.id);
-                    if (role === 'admin') {
-                        loginSection.classList.add('hidden');
-                        dashboardSection.classList.remove('hidden');
-                        setupDashboardListeners();
-                    } else {
-                        // Se estiver logado, mas não for admin, desloga forçadamente
-                        await supabaseClient.auth.signOut();
-                        loginSection.classList.remove('hidden');
-                        dashboardSection.classList.add('hidden');
-                        showCustomModal("Acesso Negado", "Sua sessão foi encerrada. Apenas administradores podem acessar.", true);
-                    }
-                } else {
-                    // Não está logado
-                    loginSection.classList.remove('hidden');
-                    dashboardSection.classList.add('hidden');
-                }
-            });
+            try {
+                // 1. Criar Usuário no Supabase Auth (usando Firebase Auth)
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                const userId = user.uid;
 
-            // Event listener do formulário de login
-            loginForm.addEventListener('submit', handleLogin);
-            
-            // Event listener do botão de logout
-            logoutBtn.addEventListener('click', handleLogout);
+                // 2. Criar Documento de Perfil no Firestore (Coleção Pública)
+                const psychologistDocPath = `/artifacts/${appId}/public/data/psychologists/${userId}`;
+                
+                await setDoc(doc(db, psychologistDocPath), {
+                    userId: userId,
+                    fullName: fullName,
+                    crp: crp,
+                    specialty: specialty,
+                    role: 'psychologist', // Definindo a role explicitamente no perfil
+                    isAvailable: true,
+                    createdAt: new Date().toISOString()
+                });
+                
+                // 3. Atualizar o Perfil do Usuário no Supabase Auth
+                // NOTE: No ambiente Canvas, a role é geralmente passada pelo Custom Claims ou pelo Backend.
+                // Aqui, apenas usamos o Firestore como a fonte da verdade para o perfil.
+                // Uma função de backend (ex: trigger do Supabase) precisaria copiar 'role: psychologist' para a tabela 'users' do Supabase.
+                // Como não temos acesso ao backend do Supabase, o Firestore é o nosso registro principal.
+                console.log(`Usuário criado no Auth com ID: ${userId}`);
+                console.log(`Perfil 'psychologist' salvo no Firestore em: ${psychologistDocPath}`);
+
+
+                showMessage(`Cadastro de ${fullName} concluído com sucesso! Você já pode fazer login.`, false);
+                form.reset(); // Limpa o formulário após o sucesso
+
+            } catch (error) {
+                console.error("Erro durante o cadastro:", error);
+                let errorMessage = "Ocorreu um erro desconhecido durante o cadastro.";
+                
+                // Mapeamento de erros comuns do Firebase Auth
+                if (error.code === 'auth/email-already-in-use') {
+                    errorMessage = "Este email já está em uso. Tente outro ou faça login.";
+                } else if (error.code === 'auth/invalid-email') {
+                    errorMessage = "O email fornecido é inválido.";
+                } else if (error.code === 'auth/weak-password') {
+                    errorMessage = "A senha deve ter pelo menos 6 caracteres.";
+                } else if (error.message.includes('permission-denied')) {
+                    errorMessage = "Erro de Permissão: Verifique se as regras do Firestore permitem a criação de documentos.";
+                }
+
+                showMessage(errorMessage, true);
+
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Cadastrar';
+            }
         }
 
-        // Inicializa a aplicação quando o DOM estiver pronto
-        document.addEventListener('DOMContentLoaded', initApp);
+        // --- Configuração de Event Listeners ---
+        form.addEventListener('submit', handleSignUp);
 
+        // Chamada de autenticação inicial
+        authenticateInitialUser();
     </script>
 </body>
 </html>
