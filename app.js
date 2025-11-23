@@ -1,8 +1,5 @@
 /* app.js - Versão com Dashboard Admin completo
-   Cards, gráfico de barras (atendimentos por mês),
-   gráfico de linhas (novos usuários por mês) e
-   lista de próximos agendamentos.
-   REVISADO: Garantia de acesso global para funções 'onclick'.
+   CORRIGIDO: Inclusão da função renderAdminContent para roteamento de abas.
 */
 
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
@@ -39,8 +36,6 @@ async function handleLogin(email, password) {
     });
     if (error) throw error;
     console.log("Login bem-sucedido:", data.user.email);
-    // As próximas duas linhas (setCurrentPage e render) são o que o index.html faria
-    // ao receber a notificação, mas as executamos diretamente para feedback imediato no formulário.
     setCurrentPage('admin');
     render(); 
   } catch (error) {
@@ -63,7 +58,25 @@ async function handleLogout() {
 }
 
 /* -------------------------
-   Views HTML
+   Roteamento de Conteúdo Admin
+   ------------------------- */
+function renderAdminContent() {
+    // Roteamento dentro da área administrativa
+    const adminContent = document.getElementById('admin-content');
+    if (!adminContent) return; // Garante que o elemento existe
+
+    if (currentAdminTab === 'dashboard') {
+        renderDashboard();
+    } else if (currentAdminTab === 'users') {
+        renderUsersContent();
+    } else {
+        adminContent.innerHTML = `<div class="p-8 text-center text-gray-500">Aba não encontrada: ${currentAdminTab}</div>`;
+    }
+}
+
+
+/* -------------------------
+   Views HTML (Login, Shell Admin)
    ------------------------- */
 
 function renderLogin() {
@@ -94,7 +107,6 @@ function renderLogin() {
 }
 
 function renderAdminShell() {
-  // As chamadas 'onclick' agora usam 'window.appModule.funcao' para garantir acesso global
   return `
     <div class="min-h-screen flex flex-col">
         <!-- Header -->
@@ -381,6 +393,7 @@ function render() {
     else if (currentPage === 'admin') { 
         console.log("RENDER: Exibindo Shell Admin e conteúdo da aba " + currentAdminTab);
         app.innerHTML = renderAdminShell(); 
+        // Chama a função de roteamento para o conteúdo interno
         renderAdminContent(); 
     }
     else {
@@ -444,6 +457,4 @@ window.appModule = {
    Exportações (Para que o index.html possa importar)
    ------------------------- */
 export { render, setCurrentPage, setCurrentSession, handleLogin, handleLogout, supabaseClient };
-
-// Exporta changeAdminTab também para chamadas via index.html/módulo
 export { changeAdminTab, renderAdminContent };
