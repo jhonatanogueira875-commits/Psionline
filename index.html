@@ -209,10 +209,12 @@
             
             try {
                 // 1. Criar o usuário na tabela de Autenticação (auth.users)
+                // AQUI ESTÁ A CORREÇÃO: Adicionando disableEmailConfirmation: true
                 const { data: { user }, error: signUpError } = await supabaseClient.auth.signUp({
                     email: email,
                     password: password,
                     options: {
+                        disableEmailConfirmation: true, // <--- CORREÇÃO CRÍTICA APLICADA AQUI
                         data: {
                             full_name: fullName // Adiciona o nome ao metadata do Auth
                         }
@@ -246,10 +248,8 @@
 
             } catch (e) {
                 console.error("ERRO NO CADASTRO:", e);
+                // AuthApiError é o erro comum do Supabase. Usamos 'e.message' para exibir.
                 showMessage('error', `Falha ao criar usuário: ${e.message}`);
-                // Em caso de falha na inserção do perfil, é ideal deletar o usuário criado no Auth,
-                // mas essa função (admin.deleteUser) só é permitida com Service Role Key, 
-                // então deixaremos para o administrador remover manualmente se necessário.
             }
         }
 
@@ -571,10 +571,11 @@
             const crpContainer = document.getElementById('crp-field-container');
             if (role === 'psychologist') {
                 crpContainer.classList.remove('hidden');
-                crpContainer.querySelector('#crp').setAttribute('required', 'required');
+                // CRP pode ser opcional, então não vou forçar o 'required' no campo
+                // crpContainer.querySelector('#crp').setAttribute('required', 'required'); 
             } else {
                 crpContainer.classList.add('hidden');
-                crpContainer.querySelector('#crp').removeAttribute('required');
+                // crpContainer.querySelector('#crp').removeAttribute('required');
             }
         }
         
@@ -631,6 +632,13 @@
                     const password = e.target.password.value;
                     handleLogin(email, password);
                 });
+            }
+            
+            // Escuta o formulário de adicionar usuário (só existe na aba 'add_user')
+            const addUserForm = document.getElementById('add-user-form');
+            if (addUserForm) {
+                addUserForm.removeEventListener('submit', handleNewUserCreation); // Previne duplicidade
+                addUserForm.addEventListener('submit', handleNewUserCreation);
             }
             
             // Expondo funções globais
