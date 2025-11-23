@@ -1,363 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
-import { 
-    getFirestore, 
-    collection, 
-    onSnapshot, 
-    addDoc, 
-    serverTimestamp, 
-    query, 
-    orderBy,
-    doc, 
-    updateDoc, 
-    deleteDoc 
-} from 'firebase/firestore';
-import { Calendar, Smile, Frown, Loader, ArrowLeft, Trash2, Edit, X, Check } from 'lucide-react';
-
-// --- CONFIGURAÇÃO FIREBASE E VARIÁVEIS GLOBAIS ---
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-// Inicializa o Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
-
-// Helper para funções de Áudio (mantidas da versão anterior)
-const base64ToArrayBuffer = (base64) => {
-    const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-};
-
-const pcmToWav = (pcm16, sampleRate = 16000) => {
-    const numChannels = 1;
-    const bytesPerSample = 2; 
-    const blockAlign = numChannels * bytesPerSample;
-    const byteRate = sampleRate * blockAlign;
-
-    const buffer = new ArrayBuffer(44 + pcm16.byteLength);
-    const view = new DataView(buffer);
-    let offset = 0;
-
-    view.setUint32(offset, 0x52494646, false); offset += 4;
-    view.setUint32(offset, 36 + pcm16.byteLength, true); offset += 4;
-    view.setUint32(offset, 0x57415645, false); offset += 4;
-    view.setUint32(offset, 0x666d7420, false); offset += 4;
-    view.setUint32(offset, 16, true); offset += 4;
-    view.setUint16(offset, 1, true); offset += 2;
-    view.setUint16(offset, numChannels, true); offset += 2;
-    view.setUint32(offset, sampleRate, true); offset += 4;
-    view.setUint32(offset, byteRate, true); offset += 4;
-    view.setUint16(offset, blockAlign, true); offset += 2;
-    view.setUint16(offset, 16, true); offset += 2;
-    view.setUint32(offset, 0x64617461, false); offset += 4;
-    view.setUint32(offset, pcm16.byteLength, true); offset += 4;
-
-    const pcmData = new Uint8Array(pcm16.buffer);
-    for (let i = 0; i < pcm16.byteLength; i++) {
-        view.setUint8(offset + i, pcmData[i]);
-    }
-
-    return new Blob([buffer], { type: 'audio/wav' });
-};
-
-// Mapeamento de humor para voz e estilo de TTS
-const voiceMap = {
-    'Excelente': { voiceName: 'Puck', style: 'cheerfully' },
-    'Bom': { voiceName: 'Kore', style: 'calmly' },
-    'Neutro': { voiceName: 'Charon', style: 'in a matter-of-fact tone' },
-    'Ruim': { voiceName: 'Fenrir', style: 'in a slightly low tone' },
-    'Péssimo': { voiceName: 'Algenib', style: 'in a slow, somber tone' },
-};
-
-const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=";
-const API_KEY = ""; 
-
-// Componente de Ícone de Humor
-const MoodIcon = ({ mood, className = "w-6 h-6" }) => {
-    switch (mood) {
-        case 'Excelente': return <Smile className={`text-emerald-500 ${className}`} />;
-        case 'Bom': return <Smile className={`text-lime-500 ${className}`} />;
-        case 'Neutro': return <Smile className={`text-amber-500 ${className}`} />;
-        case 'Ruim': return <Frown className={`text-orange-500 ${className}`} />;
-        case 'Péssimo': return <Frown className={`text-red-600 ${className}`} />;
-        default: return <Smile className={`text-gray-400 ${className}`} />;
-    }
-};
-
-// Componente de Botão de Fala TTS
-const SpeakButton = ({ text, mood }) => {
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const API_KEY = ""; 
-
-    const speak = async () => {
-        setIsLoading(true);
-        setError(null);
-        const { voiceName, style } = voiceMap[mood] || voiceMap['Neutro'];
-        const promptText = `Say ${style}: "${text}"`;
-
-        const payload = {
-            contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: {
-                responseModalities: ["AUDIO"],
-                speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } }
-                }
-            },
-            model: "gemini-2.5-flash-preview-tts"
-        };
-
-        try {
-            const response = await fetch(`${API_URL}${API_KEY}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errorBody = await response.json();
-                throw new Error(`TTS API failed: ${errorBody.error?.message || response.statusText}`);
-            }
-
-            const result = await response.json();
-            const part = result?.candidates?.[0]?.content?.parts?.[0];
-            const audioData = part?.inlineData?.data;
-            const mimeType = part?.inlineData?.mimeType;
-
-            if (audioData && mimeType && mimeType.startsWith("audio/")) {
-                const rateMatch = mimeType.match(/rate=(\d+)/);
-                const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 16000;
-                const pcmData = base64ToArrayBuffer(audioData);
-                const pcm16 = new Int16Array(pcmData);
-                const wavBlob = pcmToWav(pcm16, sampleRate);
-                const audioUrl = URL.createObjectURL(wavBlob);
-                
-                const audio = new Audio(audioUrl);
-                audio.play();
-
-                audio.onended = () => { URL.revokeObjectURL(audioUrl); };
-            } else {
-                throw new Error("Resposta de áudio inválida ou incompleta.");
-            }
-
-        } catch (err) {
-            console.error("Erro ao gerar ou reproduzir áudio:", err);
-            setError("Falha ao gerar áudio.");
-        } finally {
-            setIsLoading(false);
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard do Psicólogo - PsicoConnect</title>
+    <!-- Carrega o Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
         }
-    };
-
-    return (
-        <div className="flex flex-col items-center">
-            {error && <span className="text-red-500 text-xs mt-1">{error}</span>}
-            <button
-                onClick={speak}
-                disabled={isLoading}
-                className={`mt-1 px-3 py-1 text-xs font-medium rounded-full transition duration-150 ${
-                    isLoading 
-                    ? 'bg-blue-300 text-white cursor-not-allowed' 
-                    : 'bg-blue-500 hover:bg-blue-600 text-white shadow-md'
-                }`}
-            >
-                {isLoading ? <Loader className="w-4 h-4 animate-spin inline-block" /> : 'Ouvir Nota'}
-            </button>
-        </div>
-    );
-};
-
-// Componente Modal de Edição (Mantido)
-const EditModal = ({ record, userId, appId, onSave, onClose, db, moods, MoodIcon }) => {
-    const [editingMood, setEditingMood] = useState(record.mood);
-    const [editingNote, setEditingNote] = useState(record.note);
-    const [isSaving, setIsSaving] = useState(false);
-    const [error, setError] = useState(null);
-
-    const handleSave = async (e) => {
-        e.preventDefault();
-        if (editingNote.trim() === '') {
-            setError("A nota não pode estar vazia.");
-            return;
+        .mood-indicator {
+            font-size: 1.5rem;
+            width: 2.5rem;
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background-color: #eef2ff;
         }
-
-        setIsSaving(true);
-        setError(null);
-
-        try {
-            const recordRef = doc(db, 'artifacts', appId, 'users', userId, 'mood_records', record.id);
-            await updateDoc(recordRef, {
-                mood: editingMood,
-                note: editingNote.trim(),
-            });
-            onSave(); 
-        } catch (err) {
-            console.error("Erro ao salvar edição:", err);
-            setError(`Falha ao salvar. ${err.message}`);
-        } finally {
-            setIsSaving(false);
+        /* Estilo para notas longas, forçando quebras */
+        .notes-content {
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
-    };
+    </style>
+</head>
+<body>
 
-    return (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity duration-300">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative">
-                <button 
-                    onClick={onClose} 
-                    className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 transition"
-                    title="Fechar Edição"
-                >
-                    <X className="w-6 h-6" />
-                </button>
+<!-- Configuração e Importações do Firebase -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, addDoc, onSnapshot, collection, query, serverTimestamp, setLogLevel, getDoc, setDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-                <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Editar Registro</h2>
-                
-                {error && (
-                    <div className="bg-red-100 text-red-700 p-2 rounded-lg mb-4 text-sm">{error}</div>
-                )}
+    // Variáveis Globais do Ambiente (Obrigatórias)
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-                <form onSubmit={handleSave}>
-                    {/* Seleção de Humor para Edição */}
-                    <label className="block text-gray-700 font-medium mb-2">Selecione o Humor:</label>
-                    <div className="flex flex-wrap gap-2 mb-4 justify-start">
-                        {moods.map((mood) => (
-                            <button
-                                key={mood}
-                                type="button"
-                                onClick={() => setEditingMood(mood)}
-                                className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition duration-200 shadow-sm ${
-                                    editingMood === mood 
-                                    ? 'bg-blue-600 text-white ring-2 ring-blue-300'
-                                    : 'bg-gray-200 text-gray-700 hover:bg-blue-100'
-                                }`}
-                            >
-                                <MoodIcon mood={mood} className="w-5 h-5" />
-                                <span className="ml-2">{mood}</span>
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Nota para Edição */}
-                    <label className="block text-gray-700 font-medium mb-2 mt-4">Nota:</label>
-                    <textarea
-                        value={editingNote}
-                        onChange={(e) => setEditingNote(e.target.value)}
-                        placeholder="Edite a sua nota..."
-                        rows="4"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 resize-none"
-                        required
-                    />
-
-                    <div className="flex justify-end mt-6 space-x-3">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="bg-gray-300 text-gray-800 font-medium py-2 px-6 rounded-xl hover:bg-gray-400 transition shadow-md"
-                            disabled={isSaving}
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            className="bg-green-500 text-white font-bold py-2 px-6 rounded-xl hover:bg-green-600 transition shadow-lg disabled:opacity-50 flex items-center justify-center"
-                            disabled={isSaving}
-                        >
-                            {isSaving ? (
-                                <><Loader className="w-5 h-5 mr-2 animate-spin" /> Salvando...</>
-                            ) : 'Salvar Edição'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-
-// Componente principal
-const App = () => {
-    const [userId, setUserId] = useState(null);
-    const [moodRecords, setMoodRecords] = useState([]);
-    const [newMood, setNewMood] = useState('Bom');
-    const [newNote, setNewNote] = useState('');
-    const [isLoading, setIsLoading] = useState(true);
-    const [errorMessage, setErrorMessage] = useState('');
+    setLogLevel('Debug');
     
-    // Estados para edição e exclusão
-    const [editingRecord, setEditingRecord] = useState(null); 
-    const [deletingRecordId, setDeletingRecordId] = useState(null); // ID do registro pendente de exclusão
+    let app, db, auth;
+    let psychologistId = null;
+    let isAuthReady = false;
+    let selectedPatientId = null;
+    let selectedPatientName = null;
 
-    const moods = ['Excelente', 'Bom', 'Neutro', 'Ruim', 'Péssimo'];
-
-    const handleSignOut = async () => {
-        try {
-            setIsLoading(true); 
-            setUserId(null); 
-            setMoodRecords([]);
-            await signOut(auth);
-        } catch (error) {
-            console.error("Erro ao sair:", error);
-            setErrorMessage(`Erro ao sair: ${error.message}`);
-            setIsLoading(false); 
-        }
+    // Mapeamento de Humor para Emoji/Cor
+    const MOOD_MAP = {
+        1: { emoji: '😭', color: 'bg-red-200 text-red-800', text: 'Terrível' },
+        2: { emoji: '😔', color: 'bg-yellow-200 text-yellow-800', text: 'Ruim' },
+        3: { emoji: '😐', color: 'bg-gray-200 text-gray-800', text: 'Neutro' },
+        4: { emoji: '😊', color: 'bg-green-220 text-green-800', text: 'Bom' },
+        5: { emoji: '🤩', color: 'bg-blue-200 text-blue-800', text: 'Excelente' },
     };
 
-    // --- FUNÇÕES DE EXCLUSÃO (NOVO FLUXO) ---
+    // --- INICIALIZAÇÃO E AUTENTICAÇÃO ---
 
-    // 1. Inicia o processo de exclusão, configurando o ID do registro a ser excluído
-    const handleDeleteClick = (recordId) => {
-        setDeletingRecordId(recordId);
-    };
+    try {
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
 
-    // 2. Cancela o processo de exclusão
-    const handleCancelDelete = () => {
-        setDeletingRecordId(null);
-    };
-
-    // 3. Executa a exclusão no Firebase
-    const handleConfirmDelete = async (recordId) => {
-        if (!userId) {
-            setErrorMessage("Erro: Usuário não autenticado para exclusão.");
-            return;
-        }
-
-        try {
-            const recordRef = doc(db, 'artifacts', appId, 'users', userId, 'mood_records', recordId);
-            await deleteDoc(recordRef);
-            setErrorMessage('');
-            setDeletingRecordId(null); // Limpa o estado após sucesso
-        } catch (error) {
-            console.error("Erro ao deletar registro:", error);
-            // Mensagem de erro aprimorada para ajudar a diagnosticar regras de segurança
-            setErrorMessage(`Falha ao deletar: ${error.message}. Isso pode ser um problema de permissão (Regras do Firestore).`);
-            setDeletingRecordId(null); 
-        }
-    };
-
-    // --- FUNÇÕES DE EDIÇÃO (MANTIDAS) ---
-
-    const handleStartEdit = (record) => {
-        setEditingRecord(record);
-    };
-
-    const handleCloseEdit = () => {
-        setEditingRecord(null);
-    };
-
-
-    // 1. Efeito para Autenticação e Configuração Inicial
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                setUserId(user.uid);
-            } else {
+            async function authenticate() {
                 try {
                     if (initialAuthToken) {
                         await signInWithCustomToken(auth, initialAuthToken);
@@ -366,247 +76,576 @@ const App = () => {
                     }
                 } catch (error) {
                     console.error("Erro na autenticação:", error);
-                    setErrorMessage(`Falha na autenticação: ${error.message}`);
-                    setUserId(crypto.randomUUID()); 
+                    showMessage('Erro na autenticação. Recarregue a página.', 'error');
                 }
             }
-            setIsLoading(false);
-        });
 
-        return () => unsubscribe();
-    }, []);
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    psychologistId = user.uid;
+                    document.getElementById('psychologist-id').textContent = psychologistId;
+                    isAuthReady = true;
+                    // Inicia o carregamento da lista de pacientes
+                    loadPatientList();
+                } else {
+                    psychologistId = null;
+                    isAuthReady = true;
+                    document.getElementById('psychologist-id').textContent = 'Não autenticado.';
+                    showMessage('Você precisa estar logado como Psicólogo.', 'error');
+                }
+            });
 
-    // 2. Efeito para OUVINTE DO FIRESTORE 
-    useEffect(() => {
-        if (!userId || isLoading) return;
+            authenticate();
 
-        const userMoodsRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_records');
-        const q = query(userMoodsRef, orderBy('createdAt', 'desc'));
+        } else {
+            console.error("Configuração do Firebase vazia.");
+            showMessage('Erro: Firebase não configurado.', 'error');
+        }
+    } catch (e) {
+        console.error("Erro fatal ao inicializar o Firebase:", e);
+        showMessage('Erro: Falha ao iniciar o aplicativo.', 'error');
+    }
 
-        console.log(`Escutando dados em: /artifacts/${appId}/users/${userId}/mood_records`);
+    // --- FUNÇÕES DE UTILIDADE ---
+
+    function showMessage(message, type = 'info') {
+        const box = document.getElementById('notification-box');
+        box.textContent = message;
+        box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm transition-opacity duration-300 z-50';
         
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const records = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                date: doc.data().createdAt ? doc.data().createdAt.toDate() : new Date(),
-            }));
-            setMoodRecords(records);
-            setErrorMessage('');
-        }, (error) => {
-            console.error("Erro ao escutar registros de humor:", error);
-            setErrorMessage(`Erro de Permissão: ${error.message}. Verifique as regras de segurança do Firestore ou a autenticação.`);
-        });
+        if (type === 'error') {
+            box.classList.add('bg-red-500', 'text-white');
+        } else if (type === 'success') {
+            box.classList.add('bg-green-500', 'text-white');
+        } else {
+            box.classList.add('bg-indigo-500', 'text-white');
+        }
+        
+        box.classList.remove('hidden');
+        setTimeout(() => {
+            box.classList.add('hidden');
+        }, 5000);
+    }
 
-        return () => unsubscribe();
-    }, [userId, isLoading]); 
+    function formatDate(timestamp) {
+        if (!timestamp) return 'Data Indisponível';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+        return date.toLocaleDateString('pt-BR', options);
+    }
+    
+    // --- LÓGICA DE ASSOCIAÇÃO E LISTA DE PACIENTES ---
 
-    // Função para adicionar um novo registro
-    const addMoodRecord = async (e) => {
+    document.getElementById('add-patient-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!userId || newNote.trim() === '') {
-            setErrorMessage("Por favor, selecione um humor e adicione uma nota.");
+
+        if (!isAuthReady || !psychologistId) {
+            showMessage("Aguarde a autenticação do Psicólogo.", 'error');
+            return;
+        }
+
+        const patientIdInput = document.getElementById('patient-id-input');
+        const patientId = patientIdInput.value.trim();
+        const btn = document.getElementById('add-patient-btn');
+
+        if (!patientId) {
+            showMessage("Insira um ID de Paciente válido.", 'error');
+            return;
+        }
+
+        if (patientId === psychologistId) {
+             showMessage("Você não pode se adicionar como paciente!", 'error');
             return;
         }
         
-        const userMoodsRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_records');
+        btn.textContent = 'Verificando...';
+        btn.disabled = true;
 
         try {
-            await addDoc(userMoodsRef, {
-                mood: newMood,
-                note: newNote.trim(),
-                createdAt: serverTimestamp(),
+            // 1. Verificar ID e role 'patient' (simulação, pois o Firestore não garante role)
+            const patientUserDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', patientId);
+            const patientSnap = await getDoc(patientUserDocRef);
+            let patientNameFromData = `Paciente ${patientId.substring(0, 8)}`;
+
+
+            if (!patientSnap.exists() || patientSnap.data().role !== 'patient') {
+                showMessage(`ID ${patientId} não encontrado ou não é um Paciente.`, 'error');
+                return;
+            }
+            patientNameFromData = patientSnap.data().name || patientNameFromData;
+
+            // 2. Salvar a associação na coleção privada do psicólogo
+            const patientsCollectionRef = collection(db, 'artifacts', appId, 'users', psychologistId, 'patients');
+            
+            await setDoc(doc(patientsCollectionRef, patientId), {
+                patientId: patientId,
+                name: patientNameFromData,
+                addedAt: serverTimestamp(),
             });
-            setNewNote('');
-            setErrorMessage('');
+
+            showMessage(`Paciente "${patientNameFromData}" associado com sucesso!`, 'success');
+            patientIdInput.value = '';
+
         } catch (error) {
-            console.error("Erro ao adicionar registro:", error);
-            setErrorMessage(`Erro ao salvar: ${error.message}`);
+            console.error("Erro ao adicionar paciente:", error);
+            showMessage(`Falha ao associar: ${error.message}`, 'error');
+        } finally {
+            btn.textContent = 'Adicionar Paciente';
+            btn.disabled = false;
         }
-    };
+    });
 
-    const formatDate = (date) => {
-        return date.toLocaleDateString('pt-BR', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+    function loadPatientList() {
+        if (!isAuthReady || !psychologistId || !db) return;
+
+        const patientsCollectionRef = collection(db, 'artifacts', appId, 'users', psychologistId, 'patients');
+        const q = query(patientsCollectionRef);
+
+        const loadingMessage = document.getElementById('loading-patients');
+        loadingMessage.classList.remove('hidden');
+
+        onSnapshot(q, (snapshot) => {
+            const patients = [];
+            snapshot.forEach(doc => {
+                patients.push(doc.data());
+            });
+
+            renderPatientList(patients);
+            loadingMessage.classList.add('hidden');
+        }, (error) => {
+            console.error("Erro ao ouvir lista de pacientes:", error);
+            showMessage('Erro ao carregar a lista de pacientes.', 'error');
+            loadingMessage.classList.add('hidden');
         });
-    };
-
-    if (isLoading) {
-        return (
-            <div className="flex justify-center items-center h-screen bg-gray-50">
-                <Loader className="w-8 h-8 animate-spin text-blue-500" />
-                <span className="ml-2 text-gray-700">Carregando autenticação...</span>
-            </div>
-        );
     }
 
-    return (
-        <div className="min-h-screen bg-gray-100 p-4 sm:p-8 font-sans">
-            <header className="mb-8 text-center relative">
-                <h1 className="text-3xl font-bold text-gray-800 flex items-center justify-center">
-                    <Calendar className="w-7 h-7 mr-3 text-blue-500" />
-                    Rastreador de Humor
-                </h1>
-                <p className="text-sm text-gray-600 mt-2">
-                    Seu ID de Usuário: <code className="bg-white p-1 rounded font-mono text-xs">{userId || 'Não Autenticado'}</code>
-                </p>
-                {/* Botão de Sair */}
-                {userId && (
-                    <button
-                        onClick={handleSignOut}
-                        className="absolute top-0 right-0 bg-red-500 text-white font-medium py-1 px-3 rounded-lg hover:bg-red-600 transition duration-150 text-sm flex items-center shadow-md"
-                        title="Sair da Sessão"
-                    >
-                        <ArrowLeft className="w-4 h-4 mr-1" /> Sair
-                    </button>
-                )}
-            </header>
+    function renderPatientList(patients) {
+        const patientList = document.getElementById('patient-list');
+        patientList.innerHTML = '';
 
-            {errorMessage && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 shadow-md" role="alert">
-                    <p className="font-bold">Erro de Aplicação</p>
-                    <p className="text-sm">{errorMessage}</p>
-                    {errorMessage.includes("Regras do Firestore") && (
-                        <p className="text-xs mt-1">Se o problema persistir, verifique se a regra `allow delete` está configurada para o seu usuário.</p>
-                    )}
+        if (patients.length === 0) {
+            patientList.innerHTML = '<p class="text-gray-500 text-center py-8">Você ainda não tem pacientes associados.</p>';
+            document.getElementById('patient-details-card').classList.add('hidden');
+            document.getElementById('initial-message').classList.remove('hidden');
+            return;
+        }
+        
+        patients.forEach(patient => {
+            const patientElement = document.createElement('div');
+            patientElement.className = 'p-4 bg-white rounded-lg shadow-md hover:bg-indigo-50 cursor-pointer transition duration-150 border-l-4 border-indigo-400';
+            patientElement.innerHTML = `
+                <div class="font-bold text-gray-800">${patient.name}</div>
+                <div class="text-xs text-gray-500 truncate mt-1">ID: ${patient.patientId}</div>
+            `;
+            
+            patientElement.addEventListener('click', () => {
+                // Remove destaque de todos
+                document.querySelectorAll('#patient-list > div').forEach(el => el.classList.remove('bg-indigo-100', 'border-indigo-600'));
+                
+                // Define o paciente selecionado globalmente
+                selectedPatientId = patient.patientId;
+                selectedPatientName = patient.name;
+                
+                // Inicia a visualização do diário e metas
+                viewPatientMood(selectedPatientId, selectedPatientName);
+                viewPatientGoals(selectedPatientId); 
+
+                // Destaca o paciente selecionado
+                patientElement.classList.add('bg-indigo-100', 'border-indigo-600');
+                document.getElementById('initial-message').classList.add('hidden');
+            });
+
+            patientList.appendChild(patientElement);
+        });
+        
+        // Seleciona o primeiro paciente por padrão na inicialização
+        if (patients.length > 0 && !selectedPatientId) {
+            patientList.children[0].click(); 
+        } else if (selectedPatientId) {
+            // Se já havia um selecionado, re-seleciona
+            const currentSelected = Array.from(patientList.children).find(el => el.querySelector('code')?.textContent.includes(selectedPatientId));
+            if (currentSelected) {
+                 currentSelected.classList.add('bg-indigo-100', 'border-indigo-600');
+            } else {
+                 // Se o paciente selecionado não estiver mais na lista (foi removido), limpa a seleção
+                 document.getElementById('patient-details-card').classList.add('hidden');
+                 selectedPatientId = null;
+                 selectedPatientName = null;
+            }
+        }
+    }
+
+    // --- LÓGICA DE VISUALIZAÇÃO DO DIÁRIO DE HUMOR DO PACIENTE ---
+
+    function viewPatientMood(patientId, patientName) {
+        if (!db) return;
+
+        // Atualiza o cabeçalho do painel de detalhes
+        document.getElementById('patient-details-card').classList.remove('hidden');
+        document.getElementById('patient-name-detail').textContent = patientName;
+        document.getElementById('patient-id-detail').textContent = patientId;
+        
+        const moodEntriesDetail = document.getElementById('mood-entries-detail');
+        moodEntriesDetail.innerHTML = '<p class="text-center text-indigo-500 py-8">Carregando diário de humor...</p>';
+        document.getElementById('tab-mood').click(); // Define a aba Diário como ativa
+
+        // Caminho para a coleção privada do *PACIENTE*: /artifacts/{appId}/users/{patientId}/mood_entries
+        const patientMoodCollectionRef = collection(db, 'artifacts', appId, 'users', patientId, 'mood_entries');
+        const q = query(patientMoodCollectionRef);
+
+        onSnapshot(q, (snapshot) => {
+            let entries = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                entries.push({ id: doc.id, ...data });
+            });
+            
+            entries.sort((a, b) => {
+                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
+                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
+                return timeB - timeA;
+            });
+
+            renderPatientMoodDetails(entries);
+
+        }, (error) => {
+            console.error("Erro ao ouvir diário do paciente:", error);
+            moodEntriesDetail.innerHTML = `<p class="text-center text-red-500 py-8">Erro ao carregar dados do paciente.</p>`;
+        });
+    }
+
+    function renderPatientMoodDetails(entries) {
+        const moodEntriesDetail = document.getElementById('mood-entries-detail');
+        moodEntriesDetail.innerHTML = '';
+
+        if (entries.length === 0) {
+            moodEntriesDetail.innerHTML = '<p class="text-gray-500 text-center py-8">O paciente ainda não registrou entradas no diário.</p>';
+            return;
+        }
+
+        entries.forEach(entry => {
+            const mood = MOOD_MAP[entry.mood] || { emoji: '❓', color: 'bg-gray-200 text-gray-800', text: 'Desconhecido' };
+            const dateStr = formatDate(entry.timestamp);
+
+            const entryElement = document.createElement('div');
+            entryElement.className = 'bg-gray-50 p-4 rounded-lg shadow-sm mb-3 border border-gray-100';
+            entryElement.innerHTML = `
+                <div class="flex justify-between items-center mb-2">
+                    <div class="flex items-center space-x-3">
+                        <span class="mood-indicator ${mood.color}">${mood.emoji}</span>
+                        <span class="font-semibold text-lg text-gray-700">${mood.text}</span>
+                    </div>
+                    <span class="text-xs text-gray-500">${dateStr}</span>
                 </div>
-            )}
+                <p class="text-sm text-gray-600 notes-content">${entry.notes || 'Sem notas.'}</p>
+            `;
+            moodEntriesDetail.appendChild(entryElement);
+        });
+    }
 
-            {/* Formulário de Novo Registro (Mantido) */}
-            <div className="bg-white p-6 rounded-xl shadow-2xl mb-8 border-t-4 border-blue-500">
-                <h2 className="text-xl font-semibold text-gray-700 mb-4">Como você está se sentindo?</h2>
-                <form onSubmit={addMoodRecord}>
-                    {/* Seleção de Humor */}
-                    <div className="flex flex-wrap gap-2 mb-4 justify-center sm:justify-start">
-                        {moods.map((mood) => (
-                            <button
-                                key={mood}
-                                type="button"
-                                onClick={() => setNewMood(mood)}
-                                className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition duration-200 shadow-md ${
-                                    newMood === mood 
-                                    ? 'bg-blue-600 text-white ring-2 ring-blue-300 transform scale-105'
-                                    : 'bg-gray-200 text-gray-700 hover:bg-blue-100'
-                                }`}
-                                disabled={!userId}
-                            >
-                                <MoodIcon mood={mood} />
-                                <span className="ml-2">{mood}</span>
-                            </button>
-                        ))}
-                    </div>
+    // --- LÓGICA DE CRIAÇÃO DE METAS ---
+    
+    // Abre o modal de criação de meta
+    document.getElementById('open-goal-modal-btn').addEventListener('click', () => {
+        if (!selectedPatientId) {
+            showMessage("Selecione um paciente primeiro.", 'error');
+            return;
+        }
+        document.getElementById('goal-patient-name').textContent = selectedPatientName;
+        document.getElementById('goal-modal').classList.remove('hidden');
+    });
 
-                    {/* Nota/Detalhe */}
-                    <textarea
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder={`Escreva uma nota sobre o seu humor (${newMood.toLowerCase()})...`}
-                        rows="3"
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 resize-none"
-                        required
-                        disabled={!userId}
-                    />
+    // Fecha o modal
+    document.getElementById('close-goal-modal').addEventListener('click', () => {
+        document.getElementById('goal-modal').classList.add('hidden');
+        document.getElementById('goal-form').reset();
+    });
 
-                    <div className="flex justify-end mt-4">
-                        <button
-                            type="submit"
-                            className="bg-blue-500 text-white font-bold py-2 px-6 rounded-xl hover:bg-blue-600 transition duration-150 shadow-lg disabled:opacity-50"
-                            disabled={!userId || newNote.trim() === ''}
-                        >
-                            Salvar Registro
-                        </button>
-                    </div>
-                </form>
+    // Submete a criação da meta
+    document.getElementById('goal-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (!psychologistId || !selectedPatientId) {
+            showMessage("Erro: Psicólogo ou Paciente não selecionado.", 'error');
+            return;
+        }
+        
+        const title = document.getElementById('goal-title').value.trim();
+        const description = document.getElementById('goal-description').value.trim();
+        const btn = document.getElementById('save-goal-btn');
+
+        if (!title || !description) {
+            showMessage("Preencha o título e a descrição da meta.", 'error');
+            return;
+        }
+        
+        btn.textContent = 'Salvando...';
+        btn.disabled = true;
+
+        try {
+            // Coleção pública para Metas: /artifacts/{appId}/public/data/goals
+            const goalsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'goals');
+            
+            const goalData = {
+                psychologistId: psychologistId,
+                patientId: selectedPatientId,
+                title: title,
+                description: description,
+                isCompleted: false, // O paciente que irá mudar isso
+                createdAt: serverTimestamp(),
+            };
+
+            await addDoc(goalsCollectionRef, goalData);
+
+            showMessage('Meta criada com sucesso!', 'success');
+            document.getElementById('goal-modal').classList.add('hidden');
+            document.getElementById('goal-form').reset();
+
+
+        } catch (error) {
+            console.error("Erro ao salvar meta:", error);
+            showMessage(`Falha ao salvar meta: ${error.message}`, 'error');
+        } finally {
+            btn.textContent = 'Criar Meta';
+            btn.disabled = false;
+        }
+    });
+    
+    // --- LÓGICA DE VISUALIZAÇÃO DE METAS DO PACIENTE ---
+
+    function viewPatientGoals(patientId) {
+        if (!db) return;
+
+        const goalList = document.getElementById('goal-entries-detail');
+        goalList.innerHTML = '<p class="text-center text-indigo-500 py-8">Carregando metas...</p>';
+
+        // Busca metas onde o patientId corresponde ao ID do paciente selecionado
+        // Coleção pública para Metas: /artifacts/{appId}/public/data/goals
+        const goalsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'goals');
+        const q = query(goalsCollectionRef, where('patientId', '==', patientId));
+
+        onSnapshot(q, (snapshot) => {
+            let goals = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                goals.push({ id: doc.id, ...data });
+            });
+            
+            // Ordena localmente por status (não concluída primeiro) e depois por data
+            goals.sort((a, b) => {
+                if (a.isCompleted !== b.isCompleted) {
+                    return a.isCompleted ? 1 : -1; // Incompleta primeiro (false=0, true=1)
+                }
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt || 0);
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt || 0);
+                return timeB - timeA;
+            });
+
+            renderPatientGoals(goals);
+
+        }, (error) => {
+            console.error("Erro ao ouvir metas do paciente:", error);
+            goalList.innerHTML = `<p class="text-center text-red-500 py-8">Erro ao carregar metas.</p>`;
+        });
+    }
+
+    function renderPatientGoals(goals) {
+        const goalList = document.getElementById('goal-entries-detail');
+        goalList.innerHTML = '';
+
+        if (goals.length === 0) {
+            goalList.innerHTML = '<p class="text-gray-500 text-center py-8">Este paciente não tem metas ativas.</p>';
+            return;
+        }
+
+        goals.forEach(goal => {
+            const statusClass = goal.isCompleted ? 'bg-green-100 border-green-500' : 'bg-red-100 border-red-500';
+            const statusText = goal.isCompleted ? 'Concluída' : 'Pendente';
+            const checkIcon = goal.isCompleted ? '&#10003;' : '&#9899;'; // Checkmark / Dot
+
+            const goalElement = document.createElement('div');
+            goalElement.className = `p-4 rounded-xl shadow-md mb-4 border-l-4 ${statusClass} transition duration-200`;
+            goalElement.innerHTML = `
+                <div class="flex justify-between items-center mb-2">
+                    <h4 class="text-lg font-bold text-gray-800">${goal.title}</h4>
+                    <span class="text-sm font-semibold p-1 px-3 rounded-full ${goal.isCompleted ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}">
+                        ${checkIcon} ${statusText}
+                    </span>
+                </div>
+                <p class="text-sm text-gray-700 mb-3">${goal.description}</p>
+                <div class="text-xs text-gray-500">
+                    Criada em: ${formatDate(goal.createdAt)}
+                </div>
+            `;
+            goalList.appendChild(goalElement);
+        });
+    }
+
+    // --- LÓGICA DE ABA (TAB) ---
+    window.showTab = function(tabName, clickedElement) {
+        // Esconde todos os conteúdos
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.add('hidden');
+        });
+
+        // Mostra o conteúdo da aba selecionada
+        document.getElementById(tabName).classList.remove('hidden');
+
+        // Remove a classe de ativo de todas as abas
+        document.querySelectorAll('.tab-button').forEach(btn => {
+            btn.classList.remove('border-indigo-600', 'text-indigo-600', 'font-semibold');
+            btn.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+        });
+
+        // Adiciona a classe de ativo ao botão clicado
+        clickedElement.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+        clickedElement.classList.add('border-indigo-600', 'text-indigo-600', 'font-semibold');
+    }
+
+    // Inicializa a primeira aba
+    document.addEventListener('DOMContentLoaded', () => {
+        // A aba será inicializada no onAuthStateChanged, mas garantimos o click aqui caso o user-id já esteja pronto
+        if(isAuthReady) {
+            document.getElementById('tab-mood').click();
+        }
+    });
+
+</script>
+
+<!-- Layout Principal -->
+<div class="min-h-screen flex">
+    
+    <!-- Painel Lateral de Pacientes -->
+    <aside class="w-80 bg-white p-6 shadow-2xl flex flex-col">
+        <h2 class="text-2xl font-bold text-indigo-700 mb-6 border-b pb-3">Seus Pacientes</h2>
+        
+        <!-- ID do Psicólogo para Compartilhamento -->
+        <div class="mb-6 p-3 bg-gray-100 rounded-lg">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Seu ID de Psicólogo (Compartilhe!)</label>
+            <code id="psychologist-id" class="text-xs text-gray-800 break-all cursor-copy" title="Clique para copiar ID">Carregando...</code>
+        </div>
+        
+        <!-- Formulário de Adicionar Paciente -->
+        <form id="add-patient-form" class="mb-6 p-4 bg-indigo-50 rounded-lg shadow-inner">
+            <h3 class="text-md font-semibold text-indigo-800 mb-3">Adicionar Paciente por ID</h3>
+            <input type="text" id="patient-id-input" placeholder="Cole o ID do Paciente aqui" class="w-full p-2 border border-indigo-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 mb-3" required>
+            <button type="submit" id="add-patient-btn" class="w-full py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition duration-300">
+                Adicionar Paciente
+            </button>
+        </form>
+
+        <!-- Lista de Pacientes -->
+        <div class="flex-grow overflow-y-auto space-y-3">
+            <div id="loading-patients" class="text-center py-4 text-gray-500">Carregando lista...</div>
+            <div id="patient-list">
+                <!-- Pacientes serão injetados aqui -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- Área Principal de Detalhes -->
+    <main class="flex-grow p-10 overflow-y-auto">
+        <h1 class="text-4xl font-extrabold text-gray-800 mb-8">Análise de Progresso</h1>
+        
+        <!-- Card de Detalhes do Paciente Selecionado -->
+        <div id="patient-details-card" class="bg-white p-8 rounded-2xl shadow-xl hidden">
+            
+            <header class="mb-6 border-b pb-4 flex justify-between items-start">
+                <div>
+                    <h2 class="text-3xl font-bold text-indigo-600 mb-1">
+                        <span id="patient-name-detail" class="font-extrabold"></span>
+                    </h2>
+                    <p class="text-sm text-gray-500">ID: <code id="patient-id-detail"></code></p>
+                </div>
+                <button id="open-goal-modal-btn" class="py-2 px-4 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600 transition duration-300 shadow-md">
+                    + Nova Meta
+                </button>
+            </header>
+            
+            <!-- Abas de Navegação -->
+            <div class="border-b border-gray-200 mb-6">
+                <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                    <button id="tab-mood" onclick="showTab('mood-entries-detail', this)" class="tab-button whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm text-indigo-600 border-indigo-600">
+                        Diário de Humor
+                    </button>
+                    <button id="tab-goals" onclick="showTab('goal-entries-detail', this)" class="tab-button whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300">
+                        Metas/Tarefas
+                    </button>
+                </nav>
             </div>
 
-            {/* Lista de Registros */}
-            <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Seus Registros Anteriores ({moodRecords.length})</h2>
-            <div className="space-y-4">
-                {moodRecords.length === 0 ? (
-                    <p className="text-gray-500 italic p-4 bg-white rounded-xl shadow-md">
-                        Nenhum registro de humor encontrado. Adicione o primeiro!
-                    </p>
-                ) : (
-                    moodRecords.map((record) => (
-                        <div 
-                            key={record.id} 
-                            className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-md hover:shadow-lg transition duration-200 border-l-4 border-blue-400 relative"
-                        >
-                            <div className="flex items-center mb-2 sm:mb-0 w-full sm:w-auto">
-                                <MoodIcon mood={record.mood} className="w-7 h-7" />
-                                <div className="ml-4 flex-1 min-w-0">
-                                    <p className="text-lg font-semibold text-gray-800">{record.mood}</p>
-                                    <p className="text-xs text-gray-500 italic">{formatDate(record.date)}</p>
-                                </div>
-                            </div>
-                            <div className="flex-1 min-w-0 sm:mx-6 my-2 sm:my-0">
-                                <p className="text-gray-700 break-words">{record.note}</p>
-                            </div>
-                            
-                            <div className="flex space-x-2 items-center justify-end w-full sm:w-auto mt-2 sm:mt-0">
-                                {/* Lógica de Confirmação de Exclusão */}
-                                {deletingRecordId === record.id ? (
-                                    <div className="flex items-center space-x-2 p-2 bg-red-100 rounded-lg border border-red-300 transition duration-300">
-                                        <span className="text-red-700 text-sm font-medium">Confirma?</span>
-                                        <button
-                                            onClick={() => handleConfirmDelete(record.id)}
-                                            className="p-1 text-white bg-red-600 rounded-full hover:bg-red-700 transition"
-                                            title="Confirmar Exclusão"
-                                        >
-                                            <Check className="w-5 h-5" />
-                                        </button>
-                                        <button
-                                            onClick={handleCancelDelete}
-                                            className="p-1 text-red-600 bg-white border border-red-300 rounded-full hover:bg-gray-50 transition"
-                                            title="Cancelar"
-                                        >
-                                            <X className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <>
-                                        <SpeakButton text={record.note} mood={record.mood} />
-                                        <button
-                                            onClick={() => handleStartEdit(record)}
-                                            className="p-2 text-blue-600 rounded-full hover:bg-blue-100 transition shadow-sm"
-                                            title="Editar Registro"
-                                        >
-                                            <Edit className="w-5 h-5" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteClick(record.id)}
-                                            className="p-2 text-red-600 rounded-full hover:bg-red-100 transition shadow-sm"
-                                            title="Excluir Registro"
-                                        >
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    ))
-                )}
+
+            <!-- Conteúdo da Aba 1: Diário de Humor -->
+            <div id="mood-entries-detail" class="tab-content space-y-4 max-h-[500px] overflow-y-auto">
+                <!-- Entradas do diário serão injetadas aqui -->
+            </div>
+
+            <!-- Conteúdo da Aba 2: Metas/Tarefas -->
+            <div id="goal-entries-detail" class="tab-content space-y-4 max-h-[500px] overflow-y-auto hidden">
+                <!-- Metas serão injetadas aqui -->
             </div>
             
-            {/* Renderiza o Modal de Edição se um registro estiver selecionado */}
-            {editingRecord && (
-                <EditModal 
-                    record={editingRecord}
-                    userId={userId}
-                    appId={appId}
-                    onSave={handleCloseEdit}
-                    onClose={handleCloseEdit}
-                    db={db}
-                    moods={moods}
-                    MoodIcon={MoodIcon}
-                />
-            )}
         </div>
-    );
-};
+        
+        <p id="initial-message" class="text-center text-gray-500 py-20 text-lg">
+            Selecione um paciente na lista lateral para visualizar seu diário de humor e definir metas.
+        </p>
+    </main>
+</div>
 
-export default App;
+<!-- Modal de Criação de Meta (Hidden por padrão) -->
+<div id="goal-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+        <div class="flex justify-between items-center border-b pb-3 mb-4">
+            <h3 class="text-xl font-bold text-indigo-700">Definir Nova Meta</h3>
+            <button id="close-goal-modal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        </div>
+        
+        <p class="mb-4 text-sm text-gray-600">
+            Criando meta para: <span id="goal-patient-name" class="font-semibold text-indigo-600"></span>
+        </p>
+
+        <form id="goal-form">
+            <div class="mb-4">
+                <label for="goal-title" class="block text-sm font-medium text-gray-700 mb-1">Título da Meta (Ex: Dar uma volta)</label>
+                <input type="text" id="goal-title" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+            </div>
+            <div class="mb-6">
+                <label for="goal-description" class="block text-sm font-medium text-gray-700 mb-1">Descrição Detalhada/Instruções</label>
+                <textarea id="goal-description" rows="3" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="O que exatamente o paciente deve fazer."></textarea>
+            </div>
+            
+            <button type="submit" id="save-goal-btn" class="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300">
+                Criar Meta
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Notificação de Status (Toast) -->
+<div id="notification-box" class="hidden"></div>
+
+<script type="text/javascript">
+    // Script para copiar o ID do psicólogo ao clicar
+    document.addEventListener('DOMContentLoaded', () => {
+        const psychologistIdElement = document.getElementById('psychologist-id');
+        if (psychologistIdElement) {
+            psychologistIdElement.addEventListener('click', () => {
+                const idToCopy = psychologistIdElement.textContent;
+                if (idToCopy && idToCopy !== 'Carregando...' && idToCopy !== 'Não autenticado.') {
+                    // Usa execCommand('copy') pois navigator.clipboard pode não funcionar no iFrame
+                    const tempInput = document.createElement('textarea');
+                    tempInput.value = idToCopy;
+                    document.body.appendChild(tempInput);
+                    tempInput.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(tempInput);
+                    showMessage('ID copiado para a área de transferência!', 'info');
+                }
+            });
+        }
+    });
+</script>
+
+</body>
+</html>
