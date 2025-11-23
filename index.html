@@ -43,25 +43,19 @@
             appModule = await import('./app.js');
         } catch (e) {
             console.error("ERRO CRÍTICO: Falha ao carregar app.js.", e);
-            // Mensagem de falha para o usuário
             document.getElementById('app').innerHTML = `
                 <div class="flex justify-center items-center h-screen bg-red-100">
                     <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
                         <p class="font-bold text-xl mb-3">🚨 Falha Crítica na Inicialização 🚨</p>
-                        <p class="text-base mb-4">
-                            O arquivo <code>app.js</code> não foi carregado corretamente. Verifique se o nome do arquivo é
-                            <strong>exatamente</strong> <code>app.js</code> e se não há erros de sintaxe.
-                        </p>
-                        <p class="text-sm text-red-600 font-mono">
-                            Detalhe: ${e.message}
-                        </p>
+                        <p class="text-base mb-4">O arquivo <code>app.js</code> não foi carregado corretamente.</p>
+                        <p class="text-sm text-red-600 font-mono">Detalhe: ${e.message}</p>
                     </div>
                 </div>
             `;
-            // IMPORTANTE: O 'return' global foi removido daqui, resolvendo o SyntaxError.
+            // ATENÇÃO: O 'return' que estava causando o erro de sintaxe foi removido daqui.
         }
 
-        // Se appModule não foi carregado, a execução falhará aqui, o que é seguro.
+        // Se o módulo não foi carregado, não prosseguimos.
         if (!appModule) return; 
 
         // 2. Extrai as funções essenciais
@@ -74,9 +68,7 @@
                 <div class="flex justify-center items-center h-screen bg-red-100">
                     <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
                         <p class="font-bold text-xl mb-3">🚨 Configuração Inválida 🚨</p>
-                        <p class="text-base mb-4">
-                            O cliente do Supabase não foi inicializado corretamente no <code>app.js</code>.
-                        </p>
+                        <p class="text-base mb-4">O cliente do Supabase não foi inicializado corretamente no <code>app.js</code>.</p>
                     </div>
                 </div>
             `;
@@ -89,7 +81,7 @@
         supabaseClient.auth.onAuthStateChange((event, session) => {
             console.log(`Auth state mudou: Evento: ${event}, Sessão: ${session ? 'Ativa' : 'Nula'}`);
             
-            setCurrentSession(session); // Atualiza o estado da sessão no app.js
+            setCurrentSession(session); 
             
             // Decisão de qual página renderizar
             if (session) {
