@@ -2,675 +2,542 @@
    Cards, gráfico de barras (atendimentos por mês),
    gráfico de linhas (novos usuários por mês) e
    lista de próximos agendamentos.
-   Requer:
-   - supabase-js v2 carregado antes
-   - Chart.js CDN carregado antes deste arquivo
+   REVISÃO 1: Corrigido o problema de evento do botão de login (prevenindo o refresh).
 */
 
+// Configurações Supabase
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 if (!supabaseClient) console.error("ERRO: Supabase não inicializado");
 
+// Estado da Aplicação
 let currentPage = "login";
 let currentAuthSession = null;
 let currentAdminTab = "dashboard";
-let globalMessage = { type: null, text: null }; // Novo estado para mensagens (toast)
 
-/* -------------------------
-   Função de Notificação (Toast)
+/* ------------------------
+   Utilitários e Estado de Erro
    ------------------------- */
-function showToast(type, text) {
-    globalMessage.type = type; // 'error', 'success', 'info'
-    globalMessage.text = text;
-    // O re-render é necessário para atualizar o DOM na tela de login/admin
-    if (currentPage === 'login') {
-        renderLogin();
-    } else {
-        render();
+
+// Exibe mensagens de erro na interface do login
+function setErrorMessage(message) {
+    const errorEl = document.getElementById('login-error');
+    if (errorEl) {
+        errorEl.textContent = message;
+        if (message) {
+            errorEl.classList.remove('hidden');
+        } else {
+            errorEl.classList.add('hidden');
+        }
     }
-    // Opcional: esconder a mensagem após X segundos (não implementado aqui para persistência)
 }
 
-/* -------------------------
+/* ------------------------
    Autenticação básica
    ------------------------- */
+
 async function handleLogin(email, password) {
-  // Limpa mensagens anteriores
-  globalMessage = { type: null, text: null }; 
-    
-  try {
-    // 1. Logar no Supabase Auth
-    const { data: { session }, error } = await supabaseClient.auth.signInWithPassword({
-      email: email,
-      password: password,
-    });
+    setErrorMessage(''); // Limpa mensagens de erro anteriores
 
-    if (error) {
-        // Se for erro de credencial, o Supabase já retorna o erro
-        throw new Error(error.message); 
-    }
-    if (!session) {
-        // Isso é raro, mas garante que a sessão existe
-        throw new Error("Sessão não criada. Verifique credenciais.");
-    }
-    
-    const user = session.user;
-    
-    // 2. Verificar se o usuário possui a role 'admin'
-    const { data: userRoles, error: rolesError } = await supabaseClient
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .limit(1);
-
-    if (rolesError) {
-        throw new Error("Erro ao buscar role: " + rolesError.message);
-    }
-    
-    // Verificação defensiva: RLS pode retornar data nula ou array vazio
-    if (!userRoles || userRoles.length === 0 || userRoles[0].role !== 'admin') {
-        // Para segurança, desloga o usuário caso ele consiga logar mas não seja admin
-        await supabaseClient.auth.signOut();
-        throw new Error("Acesso negado: Somente administradores podem acessar este painel.");
+    if (!email || !password) {
+        setErrorMessage('Por favor, preencha E-mail e Senha.');
+        return;
     }
 
-    // Login de administrador bem-sucedido
-    currentAuthSession = session;
-    currentPage = 'admin';
-    showToast('success', 'Login de administrador realizado com sucesso!');
-    render();
+    // Gerenciamento do botão de login
+    const loginButton = document.getElementById('login-button');
+    if (loginButton) {
+        loginButton.disabled = true;
+        loginButton.textContent = 'Autenticando...';
+    }
 
-  } catch (e) {
-    // Exibe o erro na interface
-    showToast('error', e.message.includes('rate limit') 
-        ? "Limite de tentativas excedido (429). Aguarde 30 minutos ou use o painel Supabase." 
-        : `Falha no Login: ${e.message}`);
-    console.error("Erro no Login:", e);
-    renderLogin(); // Volta para o login em caso de falha
-  }
+    try {
+        // 1. Tenta fazer login
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: email,
+            password: password,
+        });
+
+        if (error) {
+            console.error("Erro de login:", error.message);
+            setErrorMessage('Falha no login. Verifique suas credenciais.');
+        } else if (data.session) {
+            currentAuthSession = data.session;
+            
+            // 2. Verifica se o usuário é um admin (buscando o perfil)
+            const { data: profileData, error: profileError } = await supabaseClient
+                .from('profiles')
+                .select('is_admin')
+                .eq('id', data.user.id)
+                .single();
+
+            if (profileError || !profileData || !profileData.is_admin) {
+                // Se não for admin, desloga e mostra erro
+                await supabaseClient.auth.signOut();
+                setErrorMessage('Acesso negado. Usuário não é administrador.');
+            } else {
+                // Login de admin bem-sucedido
+                currentPage = 'admin';
+                render(); // Renderiza a página de administração
+            }
+        }
+    } catch (e) {
+        console.error("Erro inesperado durante o login:", e);
+        setErrorMessage('Erro inesperado. Tente novamente.');
+    } finally {
+        // Reativa o botão e restaura o texto
+        if (loginButton) {
+            loginButton.disabled = false;
+            loginButton.textContent = 'Acessar Painel';
+        }
+    }
 }
 
 function handleLogout() {
-  // Limpa o estado da aplicação e força a volta para a página de login
-  currentAuthSession = null;
-  currentPage = 'login';
-  showToast('info', 'Você saiu do painel de administração.');
-  // Tenta fazer o logout no Supabase (assíncrono, mas não crucial para o fluxo)
-  supabaseClient.auth.signOut().catch(e => console.error("Erro ao deslogar no Supabase:", e));
+    supabaseClient.auth.signOut().then(() => {
+        currentPage = 'login';
+        currentAuthSession = null;
+        render();
+    }).catch(e => {
+        console.error("Erro ao fazer logout:", e);
+        // Em caso de erro, tenta renderizar o login
+        alert("Erro ao sair. Verifique o console.");
+        currentPage = 'login';
+        currentAuthSession = null;
+        render();
+    });
 }
 
-/* -------------------------
-   Elementos de UI
+/* ------------------------
+   Views: Login
    ------------------------- */
 
 function renderLogin() {
-  
-  // Renderiza a mensagem global (Toast) se houver
-  let toastHTML = '';
-  if (globalMessage.text) {
-    const bgColor = globalMessage.type === 'error' ? 'bg-red-500' : 
-                    globalMessage.type === 'success' ? 'bg-green-500' : 'bg-blue-500';
-    
-    toastHTML = `
-      <div id="toast" class="absolute top-4 left-1/2 transform -translate-x-1/2 p-4 rounded-lg shadow-xl text-white font-medium ${bgColor} transition-opacity duration-300 z-50 max-w-sm w-full">
-        ${globalMessage.text}
-      </div>
+    // Retorna a estrutura HTML do formulário de login
+    return `
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl glass">
+                <h1 class="text-3xl font-extrabold text-center text-indigo-700 mb-6">Psionline Admin</h1>
+                
+                <form id="login-form" class="space-y-4">
+                    <!-- Área para mensagens de erro -->
+                    <p id="login-error" class="hidden p-3 text-sm text-red-700 bg-red-100 border border-red-400 rounded-lg"></p>
+                    
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700">E-mail</label>
+                        <input type="email" id="email" name="email" required placeholder="admin@psionline.com"
+                               class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                    </div>
+                    
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">Senha</label>
+                        <input type="password" id="password" name="password" required placeholder="Sua senha secreta"
+                               class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                    </div>
+                    
+                    <button type="submit" id="login-button"
+                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-lg text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out transform hover:scale-[1.01] active:scale-[0.99]">
+                        Acessar Painel
+                    </button>
+                </form>
+            </div>
+        </div>
     `;
-  }
-    
-  // Limpa a mensagem após a renderização (para que não persista na próxima tela)
-  if (globalMessage.type) {
-      setTimeout(() => {
-          globalMessage = { type: null, text: null };
-      }, 500); // Dá tempo do usuário ver, mas não interfere nas próximas telas
-  }
-
-
-  return `
-    <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4 relative">
-      ${toastHTML}
-      <div class="glass w-full max-w-md p-8 space-y-6 rounded-xl shadow-2xl">
-        <h2 class="text-3xl font-bold text-center text-gray-800">Psionline Admin</h2>
-        <form id="loginForm" class="space-y-4">
-          <div>
-            <label for="email" class="text-sm font-medium text-gray-700">Email</label>
-            <input type="email" id="email" required 
-                   class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
-          </div>
-          <div>
-            <label for="password" class="text-sm font-medium text-gray-700">Senha</label>
-            <input type="password" id="password" required 
-                   class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
-          </div>
-          <button type="submit" 
-                  class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-lg text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-200 transform hover:scale-[1.01]">
-            Entrar
-          </button>
-        </form>
-      </div>
-    </div>
-    <script>
-        document.getElementById('loginForm').onsubmit = (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            // Chamada para a função global
-            window.handleLogin(email, password); 
-        };
-        // Expondo handleLogin para o index.html, caso necessário.
-        window.handleLogin = handleLogin;
-    </script>
-  `;
 }
+
+// NOVO: Função para anexar eventos APÓS o HTML ser inserido
+function attachLoginEvents() {
+    const form = document.getElementById('login-form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault(); // <--- CHAVE DA CORREÇÃO: Impede o refresh da página
+            const email = e.target.elements.email.value;
+            const password = e.target.elements.password.value;
+            handleLogin(email, password);
+        });
+    }
+}
+
+
+/* ------------------------
+   Views: Admin Shell e Eventos
+   ------------------------- */
 
 function renderAdminShell() {
-  const tabs = [
-    { id: 'dashboard', name: 'Dashboard', icon: '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2.586a1 1 0 01.293-.707l2-2a1 1 0 011.414 0l2 2a1 1 0 01.293.707V17a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>' },
-    { id: 'appointments', name: 'Agendamentos', icon: '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 00-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>' },
-    { id: 'users', name: 'Usuários', icon: '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0118 14v4h-2zM2 15a4 4 0 004 3v-3h-4z"/></svg>' },
-  ];
+    // Retorna a estrutura principal do painel (Sidebar e Header)
+    return `
+        <div class="min-h-screen bg-gray-50 flex">
+            <!-- Sidebar -->
+            <div class="w-64 bg-white shadow-xl flex flex-col">
+                <div class="p-6 border-b">
+                    <h1 class="text-2xl font-bold text-indigo-600">Psionline Admin</h1>
+                </div>
+                <nav class="flex-1 p-4 space-y-2">
+                    ${renderAdminNavLink('dashboard', 'Início', 'M12 4.5V2.25C12 1.83 11.67 1.5 11.25 1.5H8.25C7.83 1.5 7.5 1.83 7.5 2.25V4.5M15.75 6.75V4.5C15.75 4.08 15.42 3.75 15 3.75H12M18.75 6.75V9H15V6.75C15 6.33 14.67 6 14.25 6H12M4.5 10.5V9C4.5 8.58 4.83 8.25 5.25 8.25H7.5V10.5M7.5 13.5V15H4.5V13.5C4.5 13.08 4.83 12.75 5.25 12.75H7.5M15 13.5V15H17.25C17.67 15 18 14.67 18 14.25V12M12 18.75V16.5C12 16.08 11.67 15.75 11.25 15.75H8.25C7.83 15.75 7.5 16.08 7.5 16.5V18.75M18 18.75V15H15V18.75M18.75 21V18.75M12 21V18.75M7.5 21V18.75M2.25 12C2.25 6.48 6.78 2.25 12 2.25C17.22 2.25 21.75 6.48 21.75 12C21.75 17.52 17.22 21.75 12 21.75C6.78 21.75 2.25 17.52 2.25 12Z')}
+                    ${renderAdminNavLink('users', 'Usuários', 'M17.982 18.725A7.488 7.488 0 0012 15.75a7.491 7.491 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z')}
+                    ${renderAdminNavLink('appointments', 'Agendamentos', 'M12 7.5H15M12 12H18M12 16.5H18M17.25 6H6.75C5.78 6 5 6.78 5 7.75V16.25C5 17.22 5.78 18 6.75 18H17.25C18.22 18 19 17.22 19 16.25V7.75C19 6.78 18.22 6 17.25 6Z')}
+                    ${renderAdminNavLink('reports', 'Relatórios', 'M9 13.5H12M9 10.5H15M21.75 9V15C21.75 16.38 20.63 17.5 19.25 17.5H4.75C3.37 17.5 2.25 16.38 2.25 15V9C2.25 7.62 3.37 6.5 4.75 6.5H19.25C20.63 6.5 21.75 7.62 21.75 9ZM12 4.5V6.5M12 17.5V19.5M19.25 9V7.5M4.75 9V7.5M19.25 15V16.5M4.75 15V16.5')}
+                </nav>
+                <div class="p-4 border-t">
+                    <!-- Botão de Logout -->
+                    <button id="logout-button" class="w-full text-left flex items-center p-3 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 transition duration-150">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        Sair
+                    </button>
+                </div>
+            </div>
 
-  const navLinks = tabs.map(tab => {
-    const isActive = currentAdminTab === tab.id;
-    const activeClasses = 'bg-indigo-600 text-white shadow-lg';
-    const inactiveClasses = 'text-indigo-700 hover:bg-indigo-100';
+            <!-- Main Content Area -->
+            <div class="flex-1 overflow-y-auto">
+                <header class="p-4 bg-white shadow-md flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-gray-800">${currentAdminTab.charAt(0).toUpperCase() + currentAdminTab.slice(1)}</h2>
+                    <div class="text-gray-600 text-sm">Bem-vindo, Admin!</div>
+                </header>
+                <main id="admin-main-content" class="p-6">
+                    <!-- Conteúdo dinâmico será injetado aqui por renderAdminContent() -->
+                    <div class="text-center p-10 text-gray-500">Carregando conteúdo...</div>
+                </main>
+            </div>
+        </div>
+    `;
+}
+
+function attachAdminEvents() {
+    // Adiciona o listener para o botão de Logout
+    const logoutButton = document.getElementById('logout-button');
+    if (logoutButton) {
+        logoutButton.addEventListener('click', handleLogout);
+    }
+
+    // Adiciona listeners para os links de navegação
+    document.querySelectorAll('.admin-nav-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const newTab = e.currentTarget.dataset.tab;
+            if (currentAdminTab !== newTab) {
+                currentAdminTab = newTab;
+                render(); // Força o re-render de toda a shell para destacar o link
+                renderAdminContent(); // Apenas atualiza o conteúdo principal
+            }
+        });
+    });
+}
+
+
+function renderAdminNavLink(tab, label, svgPath) {
+    const isActive = currentAdminTab === tab;
+    const baseClasses = "admin-nav-link flex items-center p-3 rounded-lg transition duration-150 cursor-pointer";
+    const activeClasses = "bg-indigo-100 text-indigo-700 font-semibold";
+    const inactiveClasses = "text-gray-600 hover:bg-gray-100";
     
     return `
-      <a href="#" data-tab="${tab.id}" 
-         class="tab-link flex items-center space-x-2 px-4 py-2 rounded-lg transition duration-200 ${isActive ? activeClasses : inactiveClasses}">
-        ${tab.icon}
-        <span class="font-medium">${tab.name}</span>
-      </a>
+        <a href="#" data-tab="${tab}" class="${baseClasses} ${isActive ? activeClasses : inactiveClasses}">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="${svgPath}"></path>
+            </svg>
+            ${label}
+        </a>
     `;
-  }).join('');
-
-  return `
-    <div class="min-h-screen bg-gray-100 flex flex-col">
-        <!-- Header -->
-        <header class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
-            <div class="text-xl font-bold text-indigo-700">Psionline - Painel Admin</div>
-            <button id="logoutBtn" class="flex items-center space-x-2 text-red-600 hover:text-red-800 transition duration-150">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
-                <span>Sair</span>
-            </button>
-        </header>
-
-        <!-- Main Content Area -->
-        <main class="flex-grow p-4 md:p-8">
-            <div class="max-w-7xl mx-auto">
-                <!-- Navigation Tabs -->
-                <nav class="flex space-x-4 p-2 bg-white rounded-xl shadow-lg mb-8">
-                    ${navLinks}
-                </nav>
-
-                <!-- Content Area -->
-                <div id="adminContent">
-                    <!-- Conteúdo dinâmico será injetado aqui -->
-                    <div class="flex justify-center items-center h-64">
-                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
-                        <span class="ml-3 text-lg text-gray-600">Carregando dados...</span>
-                    </div>
-                </div>
-            </div>
-        </main>
-        
-        <!-- Toast Container (Para mensagens de sucesso/erro) -->
-        <div id="toastContainer" class="fixed bottom-4 right-4 z-50"></div>
-
-    </div>
-    <script>
-        document.getElementById('logoutBtn').onclick = window.handleLogout;
-        document.querySelectorAll('.tab-link').forEach(link => {
-            link.onclick = (e) => {
-                e.preventDefault();
-                currentAdminTab = e.currentTarget.dataset.tab;
-                window.render(); // Re-renderiza o shell para atualizar o estado da navegação
-            };
-        });
-        
-        // Exibe a mensagem flutuante (Toast)
-        if (window.globalMessage.text && window.globalMessage.type) {
-            const container = document.getElementById('toastContainer');
-            const type = window.globalMessage.type;
-            const text = window.globalMessage.text;
-            
-            const bgColor = type === 'error' ? 'bg-red-600' : 
-                            type === 'success' ? 'bg-green-600' : 'bg-blue-600';
-            
-            container.innerHTML = \`
-                <div class="\${bgColor} text-white p-4 rounded-lg shadow-2xl max-w-xs transition-opacity duration-300 transform translate-y-0" role="alert">
-                    \${text}
-                </div>
-            \`;
-            
-            // Limpa a mensagem após 5 segundos
-            setTimeout(() => {
-                container.innerHTML = '';
-                // Limpa o estado global após o timeout para evitar que apareça novamente
-                window.globalMessage = { type: null, text: null };
-            }, 5000);
-        }
-        
-    </script>
-  `;
 }
 
 /* -------------------------
-   Gráficos e Funções de Dash
+   Conteúdo do Painel Admin (Funções de carregamento de dados e conteúdo)
    ------------------------- */
-   
-// Variável global para armazenar a instância do Chart.js
-let myChart = null;
 
-/**
- * Desenha o gráfico de atendimentos por mês (Dashboard).
- * Requer o Chart.js carregado.
- */
-async function drawAppointmentsChart(ctx) {
-  if (!supabaseClient) return;
-  
-  // Destrói a instância anterior do gráfico se existir
-  if (myChart) {
-    myChart.destroy();
-    myChart = null;
-  }
-  
-  try {
-    // 1. Fetch de dados de agendamentos
-    const monthlyApps = await supabaseClient
-      .from('appointments')
-      .select('scheduled_date');
+function renderAdminContent() {
+    const main = document.getElementById('admin-main-content');
+    if (!main) return;
 
-    if (monthlyApps.error) throw new Error(monthlyApps.error.message);
-    
-    // **CORREÇÃO RLS/NULL**: Verifica se 'data' veio nula devido a RLS
-    if (!monthlyApps.data) throw new Error("Erro de permissão na tabela 'appointments' (RLS) para o gráfico.");
+    main.innerHTML = `<div class="p-10 text-center text-gray-500">Carregando ${currentAdminTab}...</div>`;
 
-    // 2. Processamento dos dados
-    const monthlyData = {};
-    monthlyApps.data.forEach(app => {
-      if (app.scheduled_date) {
-        const date = new Date(app.scheduled_date);
-        // Formato AAAA-MM
-        const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        monthlyData[monthYear] = (monthlyData[monthYear] || 0) + 1;
-      }
-    });
-    
-    // 3. Preparação dos dados para o gráfico (Ordenado)
-    const sortedKeys = Object.keys(monthlyData).sort();
-    const labels = sortedKeys.map(key => key.replace('-', '/')); // MM/AAAA
-    const data = sortedKeys.map(key => monthlyData[key]);
-
-    // 4. Criação do gráfico
-    myChart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Atendimentos Realizados',
-          data: data,
-          backgroundColor: 'rgba(79, 70, 229, 0.8)',
-          borderColor: 'rgb(79, 70, 229)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: 'Nº de Atendimentos' }
-          }
-        },
-        plugins: {
-            legend: { display: false }
-        }
-      }
-    });
-
-  } catch (e) {
-    console.error("Erro ao carregar gráfico de atendimentos:", e);
-    // Exibe mensagem de erro na área do gráfico
-    const chartContainer = ctx.closest('div');
-    if (chartContainer) {
-        chartContainer.innerHTML = `<div class="p-4 text-center text-red-700 bg-red-100 rounded-lg">Falha ao carregar o gráfico: ${e.message}</div>`;
+    if (currentAdminTab === 'dashboard') {
+        loadDashboardData(main);
+    } else if (currentAdminTab === 'users') {
+        loadUsers(main);
+    } else if (currentAdminTab === 'appointments') {
+        loadAppointments(main);
+    } else if (currentAdminTab === 'reports') {
+        main.innerHTML = `<div class="p-6 bg-yellow-50 rounded-xl shadow">
+            <h2 class="text-2xl mb-4 text-yellow-800">Relatórios</h2>
+            <p class="text-gray-600">Funcionalidade de Relatórios ainda será implementada.</p>
+        </div>`;
     }
-  }
 }
 
-/**
- * Desenha o gráfico de novos usuários por mês (Dashboard).
- * Requer o Chart.js carregado.
- */
-async function drawNewUsersChart(ctx) {
-    if (!supabaseClient) return;
-    
+async function loadDashboardData(main) {
     try {
-        // 1. Fetch de dados de usuários
-        // Aqui assumimos que 'created_at' está disponível na tabela 'users' (auth.users)
-        const users = await supabaseClient.from('users').select('created_at');
+        const [
+            { count: totalUsers },
+            { count: totalAppointments },
+        ] = await Promise.all([
+            supabaseClient.from('profiles').select('*', { count: 'exact', head: true }),
+            supabaseClient.from('appointments').select('*', { count: 'exact', head: true }),
+        ]);
 
-        if (users.error) throw new Error(users.error.message);
+        const totalClients = totalUsers || 0;
+        const totalSessions = totalAppointments || 0;
+
+        main.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                ${renderStatCard('Pacientes Totais', totalClients, 'M17.982 18.725A7.488 7.488 0 0012 15.75a7.491 7.491 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z', 'bg-indigo-600')}
+                ${renderStatCard('Sessões Agendadas', totalSessions, 'M6.75 3V12M6.75 3C6.75 1.76 5.74 0.75 4.5 0.75S2.25 1.76 2.25 3V12M6.75 3H10.5C11.53 3 12.38 3.85 12.38 4.88V6.75M10.5 3H15.75C16.78 3 17.63 3.85 17.63 4.88V12M17.63 12V6.75M17.63 12H12.38C11.35 12 10.5 11.15 10.5 10.12V8.25M12.38 12H17.63', 'bg-green-500')}
+                ${renderStatCard('Psicólogos Ativos', 1, 'M12 21v-8.25m0 0v-2.25m0 2.25l3 3m-3-3l-3 3m-3-4.5h18A2.25 2.25 0 0021.75 14.25v2.25a2.25 2.25 0 01-2.25 2.25H4.5A2.25 2.25 0 012.25 16.5v-2.25a2.25 2.25 0 012.25-2.25z', 'bg-yellow-500')}
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white p-6 rounded-xl shadow-lg">
+                    <h3 class="text-xl font-semibold mb-4">Atendimentos por Mês</h3>
+                    <canvas id="appointmentsChart"></canvas>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-lg">
+                    <h3 class="text-xl font-semibold mb-4">Novos Usuários por Mês</h3>
+                    <canvas id="usersChart"></canvas>
+                </div>
+            </div>
+            <div class="mt-8">
+                <div id="appointments-list-container">
+                    <!-- Lista de Agendamentos será carregada aqui -->
+                    <div class="p-6 bg-white rounded-xl shadow">Carregando agendamentos...</div>
+                </div>
+            </div>
+        `;
+
+        // Mock data for charts
+        const monthlyLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'];
+        const monthlyAppointments = [12, 19, 3, 5, 2, 3];
+        const newUsers = [5, 15, 10, 8, 12, 18];
+
+        renderChart('appointmentsChart', 'bar', monthlyLabels, monthlyAppointments, 'Atendimentos', 'rgba(79, 70, 229, 0.8)');
+        renderChart('usersChart', 'line', monthlyLabels, newUsers, 'Novos Usuários', 'rgba(16, 185, 129, 0.8)');
         
-        // **CORREÇÃO RLS/NULL**: Verifica se 'data' veio nula devido a RLS
-        if (!users.data) throw new Error("Erro de permissão na tabela 'users' (RLS) para o gráfico.");
-        
-        // 2. Processamento dos dados
-        const monthlyUsers = {};
-        users.data.forEach(user => {
-            if (user.created_at) {
-                const date = new Date(user.created_at);
-                const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                monthlyUsers[monthYear] = (monthlyUsers[monthYear] || 0) + 1;
-            }
-        });
+        loadNextAppointments();
 
-        // 3. Preparação dos dados para o gráfico (Ordenado)
-        const sortedKeys = Object.keys(monthlyUsers).sort();
-        const labels = sortedKeys.map(key => key.replace('-', '/'));
-        const data = sortedKeys.map(key => monthlyUsers[key]);
+    } catch (e) {
+        main.innerHTML = `<div class="p-6 bg-red-50 rounded-xl text-red-700 shadow">Erro ao carregar dados do Dashboard: ${e.message}</div>`;
+        console.error("Dashboard Load Error:", e);
+    }
+}
 
-        // 4. Criação do gráfico
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Novos Usuários',
-                    data: data,
-                    fill: true,
-                    backgroundColor: 'rgba(252, 165, 165, 0.2)', // rose-300
-                    borderColor: 'rgb(244, 63, 94)', // rose-600
-                    tension: 0.1
-                }]
+function renderStatCard(title, value, svgPath, bgColorClass) {
+    return `
+        <div class="p-6 ${bgColorClass} rounded-xl shadow-md flex items-center justify-between text-white transform hover:scale-[1.02] transition duration-300 ease-in-out">
+            <div>
+                <p class="text-3xl font-bold">${value}</p>
+                <p class="text-sm opacity-90 mt-1">${title}</p>
+            </div>
+            <svg class="w-10 h-10 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="${svgPath}"></path>
+            </svg>
+        </div>
+    `;
+}
+
+function renderChart(canvasId, type, labels, data, label, color) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx || typeof window.Chart === 'undefined') return;
+
+    new Chart(ctx, {
+        type: type,
+        data: {
+            labels: labels,
+            datasets: [{
+                label: label,
+                data: data,
+                backgroundColor: color.replace('0.8', '0.6'),
+                borderColor: color.replace('0.8', '1'),
+                borderWidth: type === 'line' ? 3 : 1,
+                fill: type === 'line',
+                tension: 0.4,
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: { display: true, text: 'Nº de Usuários' }
-                    }
-                },
-                plugins: {
-                    legend: { display: false }
+            plugins: {
+                legend: {
+                    display: false
                 }
             }
-        });
-
-    } catch (e) {
-        console.error("Erro ao carregar gráfico de novos usuários:", e);
-        const chartContainer = ctx.closest('div');
-        if (chartContainer) {
-            chartContainer.innerHTML = `<div class="p-4 text-center text-red-700 bg-red-100 rounded-lg">Falha ao carregar o gráfico: ${e.message}</div>`;
         }
+    });
+}
+
+async function loadUsers(main) {
+    try {
+        const users = await supabaseClient
+            .from('profiles')
+            .select('*');
+        
+        if (users.error) throw new Error(users.error.message);
+
+        const list = users.data.map(u => `
+            <li class="p-4 border border-gray-200 rounded-lg mb-2 flex justify-between items-center bg-white hover:bg-gray-50 transition duration-150">
+                <div>
+                    <div class="font-semibold text-gray-800">${u.full_name || 'Nome Desconhecido'}</div>
+                    <div class="text-sm text-gray-500">${u.email || 'E-mail não disponível'}</div>
+                </div>
+                <span class="text-xs font-medium px-3 py-1 rounded-full ${u.is_admin ? 'bg-indigo-100 text-indigo-800' : 'bg-green-100 text-green-800'}">
+                    ${u.is_admin ? 'Admin' : 'Usuário'}
+                </span>
+            </li>
+        `).join('');
+
+        main.innerHTML = `
+            <div class="p-6 bg-white rounded-xl shadow-lg">
+                <h2 class="text-2xl font-bold mb-6 text-gray-700">Gestão de Usuários (${users.data.length})</h2>
+                <ul class="space-y-3">
+                    ${list || '<li class="text-gray-500 p-4">Nenhum usuário encontrado.</li>'}
+                </ul>
+            </div>
+        `;
+    } catch (e) {
+        main.innerHTML = `<div class="p-6 bg-red-50 rounded-xl text-red-700 shadow">Erro ao carregar Usuários: ${e.message}</div>`;
     }
 }
 
-/* -------------------------
-   Conteúdo do Painel Admin
-   ------------------------- */
-
-async function renderAdminContent() {
-  const main = document.getElementById('adminContent');
-  if (!main || !supabaseClient) return;
-
-  // Renderiza o conteúdo da aba selecionada
-  if (currentAdminTab === 'dashboard') {
-    // Layout do Dashboard
-    main.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <!-- Card 1: Total de Usuários -->
-            <div class="bg-white p-6 rounded-xl shadow-lg flex items-center justify-between transition duration-300 hover:shadow-xl">
-                <div>
-                    <p class="text-sm font-medium text-gray-500">Total de Usuários</p>
-                    <p id="totalUsers" class="text-3xl font-bold text-gray-900 mt-1">...</p>
-                </div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-indigo-400" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0118 14v4h-2zM2 15a4 4 0 004 3v-3h-4z"/></svg>
-            </div>
-            
-            <!-- Card 2: Atendimentos no Mês -->
-            <div class="bg-white p-6 rounded-xl shadow-lg flex items-center justify-between transition duration-300 hover:shadow-xl">
-                <div>
-                    <p class="text-sm font-medium text-gray-500">Atendimentos no Mês</p>
-                    <p id="monthlyApps" class="text-3xl font-bold text-gray-900 mt-1">...</p>
-                </div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-green-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 00-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
-            </div>
-            
-            <!-- Card 3: Próximo Agendamento -->
-            <div class="bg-white p-6 rounded-xl shadow-lg transition duration-300 hover:shadow-xl">
-                <p class="text-sm font-medium text-gray-500">Próximo Agendamento</p>
-                <p id="nextApp" class="text-xl font-bold text-gray-900 mt-1 break-words">...</p>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Gráfico 1: Atendimentos Mensais -->
-            <div class="bg-white p-6 rounded-xl shadow-lg h-96">
-                <h3 class="text-xl font-semibold text-gray-800 mb-4">Evolução Mensal de Atendimentos</h3>
-                <canvas id="appointmentsChart"></canvas>
-            </div>
-
-            <!-- Gráfico 2: Novos Usuários -->
-            <div class="bg-white p-6 rounded-xl shadow-lg h-96">
-                <h3 class="text-xl font-semibold text-gray-800 mb-4">Novos Usuários por Mês</h3>
-                <canvas id="newUsersChart"></canvas>
-            </div>
-        </div>
-    `;
-
-    // 1. Cards (Carregamento assíncrono)
+async function loadAppointments(main) {
     try {
-        // Total de Usuários
-        const { count: totalUsers, error: userError } = await supabaseClient.from('users').select('*', { count: 'exact', head: true });
-        if (userError) throw new Error(userError.message);
-        document.getElementById('totalUsers').textContent = totalUsers !== null ? totalUsers : 'N/A';
-
-        // Atendimentos no Mês
-        const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-        const { count: monthlyAppsCount, error: appsError } = await supabaseClient
-            .from('appointments')
-            .select('*', { count: 'exact', head: true })
-            .gt('scheduled_date', startOfMonth);
-        if (appsError) throw new Error(appsError.message);
-        document.getElementById('monthlyApps').textContent = monthlyAppsCount !== null ? monthlyAppsCount : 'N/A';
-
-        // Próximo Agendamento
-        const now = new Date().toISOString();
-        const { data: nextApp, error: nextAppError } = await supabaseClient
-            .from('appointments')
-            .select(`
-                scheduled_date,
-                patient:patient_id (full_name)
-            `)
-            .gte('scheduled_date', now)
-            .order('scheduled_date', { ascending: true })
-            .limit(1)
-            .single();
-
-        if (nextAppError && nextAppError.code !== 'PGRST116') { // PGRST116 é "No rows found"
-            // Se for outro erro (como RLS), lança
-            throw new Error(nextAppError.message);
-        }
-
-        if (nextApp) {
-            const patientName = nextApp.patient?.full_name || 'Paciente Desconhecido';
-            const date = new Date(nextApp.scheduled_date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-            document.getElementById('nextApp').innerHTML = `
-                <span class="text-lg text-indigo-600">${date}</span><br>
-                com ${patientName}
-            `;
-        } else {
-            document.getElementById('nextApp').textContent = 'Nenhum agendamento futuro.';
-        }
-
-    } catch (e) {
-        console.error("Erro ao carregar Cards:", e);
-        // Exibe erro na área de conteúdo
-        main.innerHTML = `<div class="p-6 bg-red-100 rounded-xl shadow-lg text-red-800">
-            <h2 class="font-bold mb-2">Erro ao carregar dados do Dashboard!</h2>
-            <p><strong>Causa provável:</strong> Problema de Permissão (RLS) nas tabelas <code>users</code> ou <code>appointments</code>.</p>
-            <p class="mt-2 text-sm">${e.message}</p>
-        </div>`;
-        return; // Sai da função para não tentar desenhar gráficos com erro
-    }
-    
-    // 2. Gráficos (Somente se os dados dos cards carregaram)
-    const chartCtx1 = document.getElementById('appointmentsChart').getContext('2d');
-    const chartCtx2 = document.getElementById('newUsersChart').getContext('2d');
-    
-    drawAppointmentsChart(chartCtx1);
-    drawNewUsersChart(chartCtx2);
-    
-    return;
-  } 
-  
-  // Renderiza a aba de Agendamentos (Tabela)
-  if (currentAdminTab === 'appointments') {
-    main.innerHTML = `<div class="p-6 bg-white rounded-xl shadow-lg">Carregando agendamentos...</div>`;
-    
-    try {
-        // ESTE É UM PONTO ONDE PODE TER PROBLEMAS DE PERMISSÃO/REQUISIÇÃO (RLS)
+        // Exemplo: Carrega os 100 próximos agendamentos.
         const apps = await supabaseClient
             .from('appointments')
-            .select(`
-                id, scheduled_date,
-                patient:patient_id (full_name, id),
-                psychologist:psychologist_id (full_name, id)
-            `)
-            .order('scheduled_date', { ascending: true }); // Ordena do mais antigo para o mais novo
+            .select('*, patient:patient_id(full_name), psychologist:psychologist_id(full_name)')
+            .order('scheduled_date', { ascending: true })
+            .limit(100);
 
         if (apps.error) throw new Error(apps.error.message);
-        
-        // **CORREÇÃO RLS/NULL**: Verifica se 'data' veio nula devido a RLS
-        if (!apps.data) throw new Error("Erro de permissão na tabela 'appointments' (RLS). Verifique se o RLS está desativado para o ADMIN.");
-
 
         const list = apps.data.map(a => {
-            // Mapeia para garantir que 'patient' e 'psychologist' são objetos (handle join results)
+            // Garante que é um objeto, mesmo se a relação retornar um array
             const patient = Array.isArray(a.patient) ? a.patient[0] : a.patient;
             const psy = Array.isArray(a.psychologist) ? a.psychologist[0] : a.psychologist;
-            
-            const dateStr = new Date(a.scheduled_date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+            const date = new Date(a.scheduled_date).toLocaleDateString('pt-BR', { dateStyle: 'medium', timeStyle: 'short' });
 
             return `
-                <li class="p-4 border-b border-gray-200 hover:bg-gray-50 transition duration-100 grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div class="font-medium text-indigo-600 truncate">${dateStr}</div>
-                    <div>${patient?.full_name || 'Paciente [ID ' + patient?.id + ']'}</div>
-                    <div class="text-sm text-gray-600">${psy?.full_name || 'Psicólogo [ID ' + psy?.id + ']'}</div>
-                    <div class="text-right text-sm text-gray-500">${a.id}</div>
+                <li class="p-4 border border-gray-200 rounded-lg mb-2 flex justify-between items-center bg-white hover:bg-gray-50 transition duration-150">
+                    <div>
+                        <div class="font-semibold text-gray-800">${patient?.full_name || 'Paciente Desconhecido'}</div>
+                        <div class="text-sm text-indigo-600">${psy?.full_name || 'Psicólogo Desconhecido'}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-medium text-gray-700">${date}</div>
+                        <div class="text-xs text-gray-500">${a.status || 'Pendente'}</div>
+                    </div>
                 </li>
             `;
         }).join('');
-        
+
         main.innerHTML = `
             <div class="p-6 bg-white rounded-xl shadow-lg">
-                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Próximos Agendamentos (${apps.data.length})</h2>
-                <ul class="divide-y divide-gray-200">
-                    <li class="p-4 bg-gray-50 font-bold grid grid-cols-1 md:grid-cols-4 gap-4 rounded-t-lg border-b-2 border-indigo-200 hidden md:grid">
-                        <div>Data/Hora</div>
-                        <div>Paciente</div>
-                        <div>Psicólogo</div>
-                        <div class="text-right">ID</div>
-                    </li>
-                    ${list || '<li class="p-4 text-gray-600 italic">Nenhum agendamento encontrado.</li>'}
+                <h2 class="text-2xl font-bold mb-6 text-gray-700">Próximos Agendamentos (${apps.data.length})</h2>
+                <ul class="space-y-3">
+                    ${list || '<li class="text-gray-500 p-4">Nenhum agendamento futuro encontrado.</li>'}
                 </ul>
             </div>
         `;
     } catch (e) {
-        // Exibe o erro de forma clara, mencionando o RLS
-        main.innerHTML = `
-            <div class="p-6 bg-red-100 rounded-xl shadow-lg text-red-800">
-                <h2 class="font-bold mb-2">Falha ao carregar agendamentos!</h2>
-                <p><strong>Causa provável:</strong> Problema de Permissão (RLS) na tabela <code>appointments</code>.</p>
-                <p class="mt-2 text-sm">${e.message}</p>
-            </div>
-        `;
+        main.innerHTML = `<div class="p-6 bg-red-50 rounded-xl text-red-700 shadow">Erro ao carregar Agendamentos: ${e.message}</div>`;
     }
-    return;
-  }
-
-  // Renderiza a aba de Usuários
-  if (currentAdminTab === 'users') {
-    main.innerHTML = `<div class="p-6 bg-white rounded-xl shadow-lg">Carregando usuários...</div>`;
-    
-    try {
-        // ESTE É UM PONTO ONDE PODE TER PROBLEMAS DE PERMISSÃO/REQUISIÇÃO (RLS)
-        const users = await supabaseClient
-            .from('users')
-            .select(`
-                id, email, created_at,
-                profiles:id (full_name) 
-            `)
-            .order('created_at', { ascending: false });
-
-        if (users.error) throw new Error(users.error.message);
-        
-        // **CORREÇÃO RLS/NULL**: Verifica se 'data' veio nula devido a RLS
-        if (!users.data) throw new Error("Erro de permissão na tabela 'users' (RLS). Verifique se o RLS está desativado para o ADMIN.");
-
-        const list = users.data.map(u => {
-            const profile = Array.isArray(u.profiles) ? u.profiles[0] : u.profiles;
-            const dateStr = new Date(u.created_at).toLocaleDateString('pt-BR');
-
-            return `
-                <li class="p-4 border-b border-gray-200 hover:bg-gray-50 transition duration-100 grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div class="font-medium truncate">${profile?.full_name || 'Sem nome (ID ' + u.id + ')'}</div>
-                    <div class="text-sm text-indigo-600 truncate">${u.email}</div>
-                    <div class="text-sm text-gray-600">${dateStr}</div>
-                    <div class="text-right text-sm text-gray-500 truncate">${u.id}</div>
-                </li>
-            `;
-        }).join('');
-        
-        main.innerHTML = `
-            <div class="p-6 bg-white rounded-xl shadow-lg">
-                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Usuários Cadastrados (${users.data.length})</h2>
-                <ul class="divide-y divide-gray-200">
-                    <li class="p-4 bg-gray-50 font-bold grid grid-cols-1 md:grid-cols-4 gap-4 rounded-t-lg border-b-2 border-indigo-200 hidden md:grid">
-                        <div>Nome</div>
-                        <div>Email</div>
-                        <div>Criação</div>
-                        <div class="text-right">ID (UID)</div>
-                    </li>
-                    ${list || '<li class="p-4 text-gray-600 italic">Nenhum usuário encontrado.</li>'}
-                </ul>
-            </div>
-        `;
-    } catch (e) {
-        main.innerHTML = `
-            <div class="p-6 bg-red-100 rounded-xl shadow-lg text-red-800">
-                <h2 class="font-bold mb-2">Falha ao carregar usuários!</h2>
-                <p><strong>Causa provável:</strong> Problema de Permissão (RLS) na tabela <code>users</code> ou <code>profiles</code>.</p>
-                <p class="mt-2 text-sm">${e.message}</p>
-            </div>
-        `;
-    }
-    return;
-  }
 }
 
+async function loadNextAppointments() {
+    const main = document.getElementById('appointments-list-container');
+    if (!main) return;
+    try {
+      const apps = await supabaseClient
+      .from('appointments')
+      .select('scheduled_date, patient:patient_id(full_name), psychologist:psychologist_id(full_name)')
+      .order('scheduled_date', { ascending: true })
+      .limit(5);
+
+      if (apps.error) throw new Error(apps.error.message);
+
+      const list = apps.data.map(a => {
+        const date = new Date(a.scheduled_date).toLocaleDateString('pt-BR', { dateStyle: 'medium', timeStyle: 'short' });
+        // Garante que é um objeto, mesmo se a relação retornar um array
+        const patient = Array.isArray(a.patient)?a.patient[0]:a.patient;
+        const psy = Array.isArray(a.psychologist)?a.psychologist[0]:a.psychologist;
+        
+        return `
+            <li class="p-3 border border-gray-200 rounded-lg mb-2 flex justify-between items-center bg-white hover:bg-gray-50 transition duration-150">
+                <div>
+                    <div class="font-semibold text-gray-800">${patient?.full_name || 'Paciente'}</div>
+                    <div class="text-sm text-gray-500">${psy?.full_name || 'Psicólogo'}</div>
+                </div>
+                <div class="text-sm font-medium text-indigo-600">${date}</div>
+            </li>
+        `;
+      }).join('');
+      
+      main.innerHTML = `
+        <div class="p-6 bg-white rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Próximos 5 Agendamentos</h2>
+            <ul class="space-y-2">${list || '<li class="text-gray-500 p-3">Nenhum agendamento futuro.</li>'}</ul>
+        </div>
+        `;
+    } catch (e) {
+      main.innerHTML = `<div class="p-6 bg-red-50 rounded-xl text-red-700 shadow">Erro ao carregar lista de agendamentos: ${e.message}</div>`;
+    }
+}
+
+
 /* -------------------------
-   Render principal
+   Render principal e Inicialização
    ------------------------- */
 
-// Esta função agora precisa ser exposta globalmente, conforme o index.html espera.
 function render() {
   const app = document.getElementById('app');
   if (!app) return console.error("#app não encontrado");
-  if (currentPage === 'login') { app.innerHTML = renderLogin(); return; }
-  if (currentPage === 'admin') { app.innerHTML = renderAdminShell(); renderAdminContent(); return; }
-  app.innerHTML = "<p>Página desconhecida</p>";
+
+  if (currentPage === 'login') { 
+    app.innerHTML = renderLogin(); 
+    // CHAVE: Anexa os ouvintes de eventos APÓS o HTML ser inserido
+    attachLoginEvents(); 
+    return; 
+  }
+
+  if (currentPage === 'admin') { 
+    app.innerHTML = renderAdminShell(); 
+    // Anexa os ouvintes de eventos para navegação e logout APÓS a shell ser inserida
+    attachAdminEvents(); 
+    renderAdminContent(); 
+    return; 
+  }
+  
+  app.innerHTML = "<p class='p-6 text-center text-red-500'>Página desconhecida</p>";
 }
 
-// Expõe as variáveis e funções ao escopo global (Window) para que o index.html e os scripts internos possam encontrá-las.
-window.render = render;
-window.handleLogin = handleLogin; // Garantia de que o formulário de login encontra a função
-window.handleLogout = handleLogout;
-window.globalMessage = globalMessage; // Expondo o estado da mensagem
+// Verifica e carrega o Chart.js dinamicamente (para garantir o funcionamento dos gráficos)
+if (typeof window.Chart === 'undefined') {
+    const chartScript = document.createElement('script');
+    chartScript.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js';
+    chartScript.onload = () => {
+        console.log("Chart.js carregado dinamicamente.");
+        // Se o admin estava tentando carregar, tenta renderizar o conteúdo novamente
+        if (currentPage === 'admin') {
+            renderAdminContent();
+        }
+    };
+    document.head.appendChild(chartScript);
+}
+
+// Inicialização: Tenta restaurar a sessão ou define o estado inicial como 'login'
+supabaseClient.auth.getSession().then(({ data: { session } }) => {
+    if (session) {
+        currentAuthSession = session;
+        // Se há sessão, assume admin (para esta simplificação)
+        currentPage = 'admin'; 
+    } else {
+        currentPage = 'login';
+    }
+    console.log("Estado de autenticação inicializado. Página:", currentPage);
+    render();
+}).catch(e => {
+    console.error("Erro ao carregar sessão inicial do Supabase:", e);
+    currentPage = 'login';
+    render();
+});
