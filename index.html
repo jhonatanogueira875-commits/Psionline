@@ -191,9 +191,16 @@
             </div>
 
             <!-- Lista de Registros -->
-            <h3 class="text-xl font-semibold text-gray-800 mb-4">Meus Últimos Registros (Simulado)</h3>
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">
+                Meus Últimos Registros <span id="list-title-suffix" class="text-base text-gray-500 font-normal ml-2"></span>
+            </h3>
+            
+            <!-- CORREÇÃO DO BUG: Elemento 'no-mood-records' fora da área de limpeza da lista -->
+            <p class="text-gray-500 card p-4 italic text-sm text-center" id="no-mood-records" style="display: none;">
+                Nenhum registro encontrado. Comece a registrar seu humor!
+            </p>
+
             <div id="mood-list" class="space-y-4">
-                <p class="text-gray-500" id="no-mood-records">Nenhum registro encontrado. Comece a registrar seu humor!</p>
                 <!-- Registros serão inseridos aqui pelo JS -->
             </div>
             
@@ -236,10 +243,13 @@
         let firebaseConfig = null;
         try {
             // Tenta analisar a configuração JSON fornecida pelo ambiente
-            firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+            // A CORREÇÃO MAIS IMPORTANTE: garante que se __firebase_config for vazio, ele se torna um objeto vazio, e não null, para evitar erros de JSON.parse
+            const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+            firebaseConfig = JSON.parse(configString);
         } catch (e) {
-            // Ignoramos erros de análise, pois o teste de null/vazio logo abaixo pegará
+            // Em caso de falha de análise (raro, mas possível), trata como configuração vazia
             console.warn("Aviso: Falha ao tentar analisar __firebase_config. Assumindo configuração vazia.");
+            firebaseConfig = {};
         }
         
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -249,7 +259,7 @@
         let userId = null;
         let userRole = null;
         let authReady = false;
-        let isMockMode = false; // NOVA VARIÁVEL: Modo de simulação/mock
+        let isMockMode = false; 
 
         // Variável de estado para o formulário de humor
         let selectedMood = null;
@@ -298,7 +308,7 @@
         // Função principal de inicialização e autenticação
         async function initializeAppAndAuth() {
             // 1. Verifica se a configuração está disponível (MUITO CRÍTICO AQUI)
-            if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+            if (Object.keys(firebaseConfig).length === 0) {
                 console.error("ERRO: Configuração do Firebase vazia. Não é possível conectar ao banco de dados. Entrando em Modo de Simulação (Mock Mode).");
                 loadingMessageEl.textContent = "ERRO: Configuração do Firebase vazia. Entrando em Modo de Simulação (Mock Mode).";
                 isMockMode = true; // Ativa o modo mock
@@ -603,8 +613,12 @@
 
         // Listener de Real-Time para os Registros de Humor (Não usado em mock mode)
         function startMoodDiaryListener() {
+            // Atualiza o título da lista para o modo real
+            document.getElementById('list-title-suffix').textContent = '';
+            
             if (isMockMode || !userId || userRole !== 'patient' || !db) {
                  // Em mock mode, garante que qualquer registro simulado anterior seja exibido
+                 document.getElementById('list-title-suffix').textContent = '(Simulado)';
                  renderMoodEntries(JSON.parse(localStorage.getItem('mockMoods') || '[]'));
                  return;
             }
@@ -634,26 +648,21 @@
             const moodList = document.getElementById('mood-list');
             const noRecordsEl = document.getElementById('no-mood-records'); 
 
-            if (!moodList) {
-                console.error("ERRO DE RENDERIZAÇÃO: Elemento 'mood-list' não encontrado.");
+            if (!moodList || !noRecordsEl) {
+                console.error("ERRO DE RENDERIZAÇÃO: Elementos de lista de humor não encontrados.");
                 return;
             }
             
             moodList.innerHTML = ''; // Limpa a lista para re-renderizar
 
-            // VERIFICAÇÃO DE ROBUSTEZ: Garantir que a mensagem 'sem registros' existe
-            if (!noRecordsEl) {
-                console.warn("AVISO: Elemento 'no-mood-records' não encontrado. Não será possível exibir a mensagem de lista vazia.");
-            }
-           
-            // Se a lista estiver vazia, exibe o aviso
+            // Se a lista estiver vazia, exibe o aviso 'Nenhum registro encontrado'
             if (moods.length === 0) {
-                // A correção de bug está aqui: verifica se o elemento existe antes de tentar acessar 'style'
-                if (noRecordsEl) noRecordsEl.style.display = 'block'; 
+                noRecordsEl.style.display = 'block'; 
                 return;
             }
+            
             // Se houver itens, esconde o aviso
-            if (noRecordsEl) noRecordsEl.style.display = 'none';
+            noRecordsEl.style.display = 'none';
 
             // Pega apenas os 10 mais recentes (Simulado ou Real)
             const entriesToRender = isMockMode ? moods.slice(0, 10) : moods;
@@ -661,34 +670,33 @@
 
             entriesToRender.forEach(mood => {
                 // Converte Firestore Timestamp ou Date para objeto Date
-                const entryDate = mood.timestamp instanceof Date ? mood.timestamp : new Date(mood.timestamp.seconds * 1000);
+                const entryDate = mood.timestamp instanceof Date ? mood.timestamp : new Date(mood.timestamp);
 
                 const dateString = entryDate.toLocaleDateString('pt-BR', {
                     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
                 });
                 
                 const styleMap = {
-                    1: { emoji: '😞', text: 'Terrível', color: 'bg-red-100 text-red-800 border-red-500' }, 
-                    2: { emoji: '😔', text: 'Ruim', color: 'bg-orange-100 text-orange-800 border-orange-500' }, 
-                    3: { emoji: '😐', text: 'Neutro', color: 'bg-gray-100 text-gray-800 border-gray-500' }, 
-                    4: { emoji: '🙂', text: 'Bom', color: 'bg-blue-100 text-blue-800 border-blue-500' }, 
-                    5: { emoji: '😊', text: 'Excelente', color: 'bg-green-100 text-green-800 border-green-500' }
+                    1: { emoji: '😞', text: 'Terrível', color: 'bg-red-100 text-red-800' }, 
+                    2: { emoji: '😔', text: 'Ruim', color: 'bg-orange-100 text-orange-800' }, 
+                    3: { emoji: '😐', text: 'Neutro', color: 'bg-gray-100 text-gray-800' }, 
+                    4: { emoji: '🙂', text: 'Bom', color: 'bg-blue-100 text-blue-800' }, 
+                    5: { emoji: '😊', text: 'Excelente', color: 'bg-green-100 text-green-800' }
                 };
                 
-                const { emoji, text, color } = styleMap[mood.level] || { emoji: '❓', text: 'Desconhecido', color: 'bg-gray-200 text-gray-600 border-gray-300' };
+                const { emoji, text, color } = styleMap[mood.level] || { emoji: '❓', text: 'Desconhecido', color: 'bg-gray-200 text-gray-600' };
                 
-                const isMockText = isMockMode ? '<span class="text-red-500 text-xs ml-2">(SIMULADO)</span>' : '';
+                // Pega a cor base para a borda (ex: red para bg-red-100)
+                const borderColor = color.split('-')[1]; 
 
                 const entryDiv = document.createElement('div');
-                // Usa a cor da borda como o último termo da string color
-                const borderColor = color.split('-').pop(); 
-                entryDiv.className = `card p-4 flex justify-between items-center border-l-4 border-${borderColor} ${color}`;
+                entryDiv.className = `card p-4 flex justify-between items-center border-l-4 border-${borderColor}-500 ${color}`;
 
                 entryDiv.innerHTML = `
                     <div class="flex items-center">
                         <span class="text-3xl mr-3">${emoji}</span>
                         <div>
-                            <span class="font-semibold text-lg flex items-center">${text} ${isMockText}</span>
+                            <span class="font-semibold text-lg flex items-center">${text}</span>
                             <p class="text-xs text-gray-500">${dateString}</p>
                         </div>
                     </div>
@@ -704,7 +712,10 @@
             if (isMockMode) {
                  console.warn("[MOCK MODE] Simulação de logout. Redirecionando para a seleção de perfil.");
                  userRole = null;
-                 localStorage.removeItem('mockMoods'); // Limpa os dados simulados
+                 // Limpa os dados simulados
+                 localStorage.removeItem('mockMoods'); 
+                 // Limpa o estado da lista
+                 renderMoodEntries([]);
                  showView('role-selection-view');
                  return;
             }
