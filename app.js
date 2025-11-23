@@ -156,7 +156,7 @@ function renderAdminShell() {
         return `
             <button onclick="setAdminTab('${tab}')" 
                     class="flex items-center space-x-3 p-3 rounded-xl transition duration-150 ease-in-out w-full text-left ${isActive ? activeClasses : inactiveClasses}">
-                <i class="${iconClass} w-5 h-5"></i>
+                <i class="${iconClass} w-5 h-5 fa-fw"></i>
                 <span class="font-medium">${label}</span>
             </button>
         `;
@@ -177,7 +177,7 @@ function renderAdminShell() {
             </nav>
             <div class="p-4 border-t border-indigo-700">
                 <button onclick="handleLogout()" class="w-full flex items-center justify-center space-x-2 p-3 bg-indigo-700 text-indigo-100 rounded-xl hover:bg-indigo-900 transition duration-150 ease-in-out font-semibold shadow-md">
-                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <i class="fa-solid fa-right-from-bracket fa-fw"></i>
                     <span>Sair</span>
                 </button>
             </div>
@@ -239,8 +239,6 @@ async function renderAppointmentsDashboard() {
     try {
         // 1. Fetch Agendamentos com Joins
         // O RLS garante que só veremos o que nos pertence (Admin vê tudo, Psicólogo vê os seus)
-        // Usamos o select com foreign key references:
-        // patient:patient_id(full_name, email, phone) -> renomeia a FK para 'patient' e seleciona campos do perfil
         const { data: appointments, error } = await supabaseClient
             .from('appointments')
             .select(`
@@ -254,7 +252,6 @@ async function renderAppointmentsDashboard() {
 
         // Formata a lista de agendamentos
         const appointmentListHtml = appointments.map(app => {
-            // As propriedades 'patient' e 'psychologist' contêm os objetos do JOIN
             const patientName = app.patient?.full_name || 'Paciente Não Encontrado';
             const psyName = app.psychologist?.full_name || 'Psicólogo Não Encontrado';
             const dateStr = formatDate(app.scheduled_date);
@@ -278,7 +275,7 @@ async function renderAppointmentsDashboard() {
                 <li class="flex items-center justify-between p-4 bg-white rounded-xl shadow-md hover:shadow-lg transition duration-200 mb-3 border-l-4 border-indigo-500">
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center space-x-3 mb-1">
-                            <i class="fa-solid fa-calendar-day text-indigo-600"></i>
+                            <i class="fa-solid fa-calendar-day text-indigo-600 fa-fw"></i>
                             <span class="text-lg font-bold text-gray-800">${dateStr}</span>
                             <span class="${statusClass}">${app.status.toUpperCase()}</span>
                         </div>
@@ -312,7 +309,8 @@ async function renderAppointmentsDashboard() {
                  </div>`;
         console.error("Erro no renderAppointmentsDashboard:", e);
     }
-
+    
+    // AQUI ESTAVA A CHAVE EXTRA QUE CAUSAVA O ERRO DE SINTAXE.
     contentDiv.innerHTML = html;
 }
 
@@ -328,6 +326,7 @@ async function renderProfilesDashboard() {
 
     try {
         // A busca simples funciona graças ao RLS:
+        // Admin: vê todos; Psicólogo: vê só o próprio; Paciente: vê só o próprio.
         const { data: profiles, error } = await supabaseClient
             .from('profiles')
             .select('*')
