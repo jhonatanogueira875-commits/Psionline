@@ -1,11 +1,5 @@
 /* app.js - Versão com Dashboard Admin completo
-   Sintaxe de chaves revisada para corrigir o Uncaught SyntaxError.
-   Cards, gráfico de barras (atendimentos por mês),
-   gráfico de linhas (novos usuários por mês) e
-   lista de próximos agendamentos.
-   Requer:
-   - supabase-js v2 carregado antes
-   - Chart.js CDN carregado antes deste arquivo
+   Sintaxe de chaves revisada e log de depuração aprimorado no console.
 */
 
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
@@ -69,6 +63,8 @@ async function handleLogin(email, password) {
 
     if (profileError) {
         console.error("ERRO AO CARREGAR PERFIL:", profileError);
+        // Novo Log de Debug para RLS ou Erro de Tabela
+        console.log("DEBUG: Não foi possível obter o perfil. Isso pode ser um problema de RLS ou a linha 'profiles' não existe para o usuário.");
         loginError = "Erro ao carregar seu perfil. Tente novamente.";
         await supabaseClient.auth.signOut();
         currentAuthSession = null;
@@ -77,6 +73,7 @@ async function handleLogin(email, password) {
     }
     
     // VERIFICAÇÃO CRÍTICA DO PAPEL (ROLE)
+    console.log("SUCESSO NO LOGIN. Papel do usuário:", profileData?.role); // LOG DE DEBUG CRÍTICO
     if (!profileData || profileData.role !== 'admin') {
         console.warn("ACESSO NEGADO: Usuário logado tem o papel:", profileData?.role);
         loginError = "Acesso negado. Esta área é restrita a administradores.";
