@@ -239,6 +239,8 @@ async function renderAppointmentsDashboard() {
     try {
         // 1. Fetch Agendamentos com Joins
         // O RLS garante que só veremos o que nos pertence (Admin vê tudo, Psicólogo vê os seus)
+        // Usamos o select com foreign key references:
+        // patient:patient_id(full_name, email, phone) -> renomeia a FK para 'patient' e seleciona campos do perfil
         const { data: appointments, error } = await supabaseClient
             .from('appointments')
             .select(`
@@ -252,6 +254,7 @@ async function renderAppointmentsDashboard() {
 
         // Formata a lista de agendamentos
         const appointmentListHtml = appointments.map(app => {
+            // As propriedades 'patient' e 'psychologist' contêm os objetos do JOIN
             const patientName = app.patient?.full_name || 'Paciente Não Encontrado';
             const psyName = app.psychologist?.full_name || 'Psicólogo Não Encontrado';
             const dateStr = formatDate(app.scheduled_date);
@@ -325,7 +328,6 @@ async function renderProfilesDashboard() {
 
     try {
         // A busca simples funciona graças ao RLS:
-        // Admin: vê todos; Psicólogo: vê só o próprio; Paciente: vê só o próprio.
         const { data: profiles, error } = await supabaseClient
             .from('profiles')
             .select('*')
@@ -457,6 +459,3 @@ if (!currentAuthSession) {
 } else {
     render();
 }
-};
-
-
