@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psionline - Painel Admin</title>
+    <title>Psionline - Plataforma de Atendimento</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Awesome Icons -->
@@ -35,14 +35,8 @@
         </div>
     </div>
 
-    <!-- TODO O CÓDIGO JAVASCRIPT AGORA ESTÁ AQUI PARA EVITAR ERROS DE CARREGAMENTO DE ARQUIVO -->
+    <!-- TODO O CÓDIGO JAVASCRIPT -->
     <script>
-        /* app.js - Versão com Dashboard Admin completo
-           Cards, gráfico de barras (atendimentos por mês),
-           gráfico de linhas (novos usuários por mês) e
-           lista de próximos agendamentos.
-        */
-
         // Variáveis de Configuração Supabase
         const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
@@ -51,9 +45,9 @@
         const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
         if (!supabaseClient) console.error("ERRO CRÍTICO: Supabase não inicializado ou CDN faltando.");
 
-        let currentPage = "login";
+        let currentPage = "login"; // 'login', 'admin', 'psychologist', 'patient'
         let currentAuthSession = null;
-        let currentAdminTab = "dashboard";
+        let currentAdminTab = "dashboard"; // 'dashboard', 'users', 'add_user'
 
         /* ---------------------------------
            Utilitários de Mensagens e Estado
@@ -99,10 +93,10 @@
             }, 5000);
         }
 
-
         /* ------------------------
-           Autenticação principal
+           Autenticação e Redirecionamento
            ------------------------- */
+
         async function handleLogin(email, password) {
             showMessage('info', 'Tentando login...');
             console.log(`TENTATIVA DE LOGIN: ${email}`);
@@ -137,7 +131,7 @@
 
                 if (profileError) {
                     console.error("ERRO AO BUSCAR PERFIL:", profileError.message);
-                    showMessage('error', "Erro ao carregar perfil. Verifique a tabela 'profiles' e as políticas RLS.");
+                    showMessage('error', "Erro ao carregar perfil. O usuário existe, mas o perfil não. Verifique as RLS.");
                     currentPage = "login";
                     render();
                     return;
@@ -146,19 +140,29 @@
                 const userRole = profileData.role;
                 console.log("PERFIL ENCONTRADO. Papel do usuário:", userRole);
 
-                // 2. Verificação de permissão
-                if (userRole === 'admin') {
-                    currentPage = 'admin';
-                    showMessage('success', `Bem-vindo, Administrador!`);
-                } else {
-                    console.error(`ACESSO NEGADO: Usuário logado tem o papel: ${userRole}. Apenas 'admin' é permitido.`);
-                    showMessage('error', `Acesso Negado. Seu papel (${userRole}) não é 'admin'.`);
-                    // Se o papel não for admin, desloga o usuário por segurança
-                    await supabaseClient.auth.signOut();
-                    currentPage = "login";
+                // 2. Redirecionamento baseado no papel
+                switch (userRole) {
+                    case 'admin':
+                        currentPage = 'admin';
+                        showMessage('success', `Bem-vindo, Administrador!`);
+                        break;
+                    case 'psychologist':
+                        currentPage = 'psychologist';
+                        showMessage('success', `Bem-vindo, Psicólogo!`);
+                        break;
+                    case 'patient':
+                        currentPage = 'patient';
+                        showMessage('success', `Bem-vindo, Paciente!`);
+                        break;
+                    default:
+                        console.error(`ACESSO NEGADO: Papel desconhecido: ${userRole}.`);
+                        showMessage('error', `Acesso Negado. Seu papel (${userRole}) é inválido.`);
+                        await supabaseClient.auth.signOut();
+                        currentPage = "login";
+                        break;
                 }
                 
-                render(); // Renderiza a página apropriada (admin ou login)
+                render(); 
 
             } catch (e) {
                 console.error("ERRO CRÍTICO NO FLUXO DE LOGIN:", e);
@@ -181,10 +185,79 @@
                 render();
             }
         }
+        
+        /* ------------------------
+           ADMIN - Lógica de Cadastro de Usuários
+           ------------------------- */
+
+        async function handleNewUserCreation(e) {
+            e.preventDefault();
+            const form = e.target;
+            const role = form.role.value;
+            const fullName = form.full_name.value;
+            const email = form.email.value;
+            const password = form.password.value;
+            const phone = form.phone.value;
+            const crp = form.crp ? form.crp.value : null;
+
+            if (!fullName || !email || !password || !phone) {
+                showMessage('error', 'Por favor, preencha todos os campos obrigatórios.');
+                return;
+            }
+
+            showMessage('info', `Criando novo usuário (${role})...`);
+            
+            try {
+                // 1. Criar o usuário na tabela de Autenticação (auth.users)
+                const { data: { user }, error: signUpError } = await supabaseClient.auth.signUp({
+                    email: email,
+                    password: password,
+                    options: {
+                        data: {
+                            full_name: fullName // Adiciona o nome ao metadata do Auth
+                        }
+                    }
+                });
+
+                if (signUpError) throw signUpError;
+                
+                // 2. Inserir o perfil na tabela 'profiles'
+                const profileData = {
+                    id: user.id,
+                    full_name: fullName,
+                    email: email,
+                    role: role,
+                    status: 'active',
+                    phone: phone,
+                    // CRP é necessário apenas para psicólogos (e é opcional no perfil)
+                    crp: role === 'psychologist' ? crp : null 
+                };
+
+                const { error: profileError } = await supabaseClient
+                    .from('profiles')
+                    .insert([profileData]);
+
+                if (profileError) throw profileError;
+
+                showMessage('success', `Usuário ${fullName} (${role}) criado com sucesso! O usuário pode logar agora.`);
+                
+                // Limpa o formulário após o sucesso
+                form.reset();
+
+            } catch (e) {
+                console.error("ERRO NO CADASTRO:", e);
+                showMessage('error', `Falha ao criar usuário: ${e.message}`);
+                // Em caso de falha na inserção do perfil, é ideal deletar o usuário criado no Auth,
+                // mas essa função (admin.deleteUser) só é permitida com Service Role Key, 
+                // então deixaremos para o administrador remover manualmente se necessário.
+            }
+        }
+
 
         /* ------------------------
-           Template: Loading
+           Templates Comuns
            ------------------------- */
+
         function renderLoading() {
             return `
                 <div class="flex justify-center items-center h-screen w-full bg-gray-50">
@@ -197,16 +270,16 @@
         }
 
         /* ------------------------
-           Template: Login
+           Template: Login Público (Genérico)
            ------------------------- */
-
         function renderLogin() {
             return `
-                <div class="min-h-screen flex items-center justify-center p-4 bg-gray-100">
+                <div class="min-h-screen flex items-center justify-center p-4 bg-indigo-600">
                     <div class="w-full max-w-md">
                         <div id="message-container"></div>
-                        <div class="bg-white p-8 rounded-xl shadow-2xl">
-                            <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">Psionline Admin</h2>
+                        <div class="glass p-8 rounded-xl shadow-2xl">
+                            <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">Psionline</h2>
+                            <p class="text-center text-gray-600 mb-6">Acesse sua conta de Psicólogo, Paciente ou Admin.</p>
                             <form id="login-form" class="space-y-6">
                                 <div>
                                     <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
@@ -220,12 +293,60 @@
                                 </div>
                                 <button type="submit"
                                     class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
-                                    Entrar
+                                    Acessar Plataforma
                                 </button>
                             </form>
-                            <p class="mt-6 text-center text-sm text-gray-500">
-                                Painel exclusivo para administradores.
+                            <p class="mt-6 text-center text-sm text-gray-600">
+                                Não tem uma conta? Solicite ao administrador.
                             </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        /* ------------------------
+           Templates de Dashboards de Usuário
+           ------------------------- */
+
+        function renderPsychologistDashboard() {
+            return `
+                <div class="min-h-screen p-8">
+                    <div id="message-container"></div>
+                    <header class="flex justify-between items-center mb-10 pb-4 border-b border-gray-200">
+                        <h1 class="text-4xl font-extrabold text-indigo-700">Bem-vindo(a), Psicólogo(a)!</h1>
+                        <button onclick="handleLogout()" class="px-4 py-2 rounded-lg text-white bg-red-500 hover:bg-red-600 transition duration-150">
+                            <i class="fas fa-sign-out-alt"></i> Sair
+                        </button>
+                    </header>
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h2 class="text-2xl font-semibold text-gray-800 mb-4">Seus Próximos Atendimentos</h2>
+                        <p class="text-gray-600">Funcionalidade em desenvolvimento. Aqui você verá sua agenda, pacientes e ferramentas de sessão.</p>
+                        <div class="mt-4 p-4 border border-indigo-200 rounded-lg bg-indigo-50">
+                            <p class="font-medium text-indigo-700">Próxima Etapa: Buscar e exibir dados específicos do psicólogo (agenda, pacientes).</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPatientDashboard() {
+            return `
+                <div class="min-h-screen p-8">
+                    <div id="message-container"></div>
+                    <header class="flex justify-between items-center mb-10 pb-4 border-b border-gray-200">
+                        <h1 class="text-4xl font-extrabold text-teal-700">Bem-vindo(a), Paciente!</h1>
+                        <button onclick="handleLogout()" class="px-4 py-2 rounded-lg text-white bg-red-500 hover:bg-red-600 transition duration-150">
+                            <i class="fas fa-sign-out-alt"></i> Sair
+                        </button>
+                    </header>
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h2 class="text-2xl font-semibold text-gray-800 mb-4">Seus Agendamentos</h2>
+                        <p class="text-gray-600">Funcionalidade em desenvolvimento. Aqui você poderá agendar, ver o histórico de sessões e acessar o link da próxima consulta.</p>
+                        <div class="mt-4 p-4 border border-teal-200 rounded-lg bg-teal-50">
+                            <p class="font-medium text-teal-700">Próxima Etapa: Criar o fluxo de agendamento e exibição de dados para o paciente.</p>
                         </div>
                     </div>
                 </div>
@@ -233,9 +354,9 @@
         }
 
         /* ------------------------
-           Template: Dashboard Admin
+           Templates do Admin Panel
            ------------------------- */
-
+        
         function renderAdminShell() {
             return `
                 <div class="min-h-screen bg-gray-100 flex flex-col">
@@ -244,8 +365,9 @@
                         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
                             <h1 class="text-xl font-bold text-white">Psionline Admin Dashboard</h1>
                             <nav class="flex space-x-4">
-                                <button id="tab-dashboard" onclick="changeAdminTab('dashboard')" class="px-3 py-1 rounded-lg text-sm font-medium transition duration-150 ${currentAdminTab === 'dashboard' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}">Dashboard</button>
-                                <button id="tab-users" onclick="changeAdminTab('users')" class="px-3 py-1 rounded-lg text-sm font-medium transition duration-150 ${currentAdminTab === 'users' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}">Usuários</button>
+                                <button onclick="changeAdminTab('dashboard')" class="px-3 py-1 rounded-lg text-sm font-medium transition duration-150 ${currentAdminTab === 'dashboard' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}">Dashboard</button>
+                                <button onclick="changeAdminTab('users')" class="px-3 py-1 rounded-lg text-sm font-medium transition duration-150 ${currentAdminTab === 'users' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}">Lista de Usuários</button>
+                                <button onclick="changeAdminTab('add_user')" class="px-3 py-1 rounded-lg text-sm font-medium transition duration-150 ${currentAdminTab === 'add_user' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}">Adicionar Usuário</button>
                                 <button id="logout-button" onclick="handleLogout()" class="px-3 py-1 rounded-lg text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition duration-150">Sair</button>
                             </nav>
                         </div>
@@ -255,7 +377,6 @@
                     <main class="flex-grow p-4 sm:p-6 lg:p-8">
                         <div id="message-container"></div>
                         <div id="admin-content" class="max-w-7xl mx-auto">
-                            <!-- Conteúdo de cada aba será injetado aqui -->
                             ${renderLoading()}
                         </div>
                     </main>
@@ -271,82 +392,198 @@
             renderAdminContent();
         }
 
-        // Placeholder para o conteúdo do Admin
         async function renderAdminContent() {
             const main = document.getElementById('admin-content');
             if (!main) return;
 
-            main.innerHTML = renderLoading(); // Mostra loader enquanto carrega
+            main.innerHTML = renderLoading(); 
 
             if (currentAdminTab === 'dashboard') {
-                // Lógica de Dashboards
-                try {
-                    // Exemplo de busca de dados (Total de Usuários e Agendamentos)
-                    const { count: totalUsers } = await supabaseClient.from('profiles').select('id', { count: 'exact', head: true });
-                    const { count: totalAppointments } = await supabaseClient.from('appointments').select('id', { count: 'exact', head: true });
-                    
-                    main.innerHTML = `
-                        <h2 class="text-3xl font-semibold text-gray-800 mb-6">Dashboard Administrativo</h2>
-                        
-                        <!-- Cards de Métricas -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                            <!-- Card 1: Usuários Totais -->
-                            <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-500">
-                                <p class="text-sm font-medium text-gray-500">Usuários Registrados</p>
-                                <p class="text-4xl font-bold text-gray-900 mt-1">${totalUsers || 0}</p>
-                            </div>
-
-                            <!-- Card 2: Agendamentos Totais -->
-                            <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500">
-                                <p class="text-sm font-medium text-gray-500">Agendamentos</p>
-                                <p class="text-4xl font-bold text-gray-900 mt-1">${totalAppointments || 0}</p>
-                            </div>
-                            
-                            <!-- Card 3: Próximos Agendamentos (Fictício) -->
-                            <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-yellow-500">
-                                <p class="text-sm font-medium text-gray-500">Próxima Sessão</p>
-                                <p class="text-xl font-bold text-gray-900 mt-1">N/A</p>
-                                <p class="text-sm text-gray-600">Aguardando dados</p>
-                            </div>
-                        </div>
-
-                        <!-- Seção de Agendamentos Recentes -->
-                        <div class="mt-8">
-                            <h3 class="text-2xl font-semibold mb-4 text-gray-800">Próximos Agendamentos</h3>
-                            <div id="appointments-list-container">
-                                ${renderLoading()}
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Renderiza a lista de agendamentos dentro da div
-                    await renderRecentAppointments();
-
-                } catch (e) {
-                    main.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-xl shadow-md border border-red-400">Erro ao carregar dashboard: ${e.message}</div>`;
-                }
+                await renderDashboardView(main);
                 return;
             }
 
             if (currentAdminTab === 'users') {
-                // Lógica de Usuários (Psicólogos e Pacientes)
-                main.innerHTML = `
-                    <h2 class="text-3xl font-semibold text-gray-800 mb-6">Gestão de Usuários</h2>
-                    <div id="users-list-container">
-                        ${renderLoading()}
-                    </div>
-                `;
-                await renderUserList();
+                await renderUserList(main);
+                return;
+            }
+
+            if (currentAdminTab === 'add_user') {
+                renderAddUserView(main);
                 return;
             }
         }
+        
+        async function renderDashboardView(main) {
+             try {
+                // Exemplo de busca de dados (Total de Usuários e Agendamentos)
+                const { count: totalUsers } = await supabaseClient.from('profiles').select('id', { count: 'exact', head: true });
+                const { count: totalAppointments } = await supabaseClient.from('appointments').select('id', { count: 'exact', head: true });
+                
+                main.innerHTML = `
+                    <h2 class="text-3xl font-semibold text-gray-800 mb-6">Dashboard Administrativo</h2>
+                    
+                    <!-- Cards de Métricas -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                        <!-- Card 1: Usuários Totais -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-500">
+                            <p class="text-sm font-medium text-gray-500">Usuários Registrados</p>
+                            <p class="text-4xl font-bold text-gray-900 mt-1">${totalUsers || 0}</p>
+                        </div>
 
+                        <!-- Card 2: Agendamentos Totais -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-teal-500">
+                            <p class="text-sm font-medium text-gray-500">Agendamentos</p>
+                            <p class="text-4xl font-bold text-gray-900 mt-1">${totalAppointments || 0}</p>
+                        </div>
+                        
+                        <!-- Card 3: Psicólogos Ativos -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-yellow-500">
+                            <p class="text-sm font-medium text-gray-500">Psicólogos Ativos (Fictício)</p>
+                            <p class="text-xl font-bold text-gray-900 mt-1">2/3</p>
+                            <p class="text-sm text-gray-600">Aguardando dados</p>
+                        </div>
+                    </div>
+
+                    <!-- Seção de Agendamentos Recentes -->
+                    <div class="mt-8">
+                        <h3 class="text-2xl font-semibold mb-4 text-gray-800">Próximos Agendamentos</h3>
+                        <div id="appointments-list-container">
+                            ${renderLoading()}
+                        </div>
+                    </div>
+                `;
+                
+                // Renderiza a lista de agendamentos dentro da div
+                await renderRecentAppointments();
+
+            } catch (e) {
+                main.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-xl shadow-md border border-red-400">Erro ao carregar dashboard: ${e.message}</div>`;
+            }
+        }
+
+        async function renderUserList(main) {
+            
+            try {
+                // Busca todos os usuários, ordenados por nome
+                const { data: users, error } = await supabaseClient
+                    .from('profiles')
+                    .select('*') 
+                    .order('full_name', { ascending: true });
+
+                if (error) throw error;
+                
+                users.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+
+                const list = users.map(u => {
+                    const statusClass = u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700';
+                    const roleClass = u.role === 'psychologist' ? 'bg-blue-100 text-blue-700' : (u.role === 'patient' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700');
+                    const crpDisplay = u.role === 'psychologist' && u.crp ? `<span class="text-sm text-gray-500 ml-2">CRP: ${u.crp}</span>` : '';
+
+                    return `
+                        <li class="p-4 bg-white border border-gray-200 rounded-lg mb-3 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-sm hover:shadow-md transition duration-150">
+                            <div class="flex-1 min-w-0 mb-2 sm:mb-0">
+                                <p class="font-semibold text-lg text-gray-800">${u.full_name || 'Nome Não Informado'}</p>
+                                <p class="text-sm text-gray-600 truncate">${u.email || 'Email Não Informado'}</p>
+                            </div>
+                            <div class="flex items-center space-x-3 ml-0 sm:ml-4">
+                                ${crpDisplay}
+                                <span class="px-2 py-1 text-xs font-medium rounded-full ${roleClass}">${u.role}</span>
+                                <span class="px-2 py-1 text-xs font-medium rounded-full ${statusClass}">${u.status}</span>
+                                <!-- TODO: Botão de Edição/Ações -->
+                            </div>
+                        </li>
+                    `;
+                }).join('');
+
+                main.innerHTML = `
+                    <h2 class="text-3xl font-semibold text-gray-800 mb-6">Lista de Usuários</h2>
+                    <ul class="space-y-3 p-4 bg-white rounded-xl shadow-lg">
+                        ${list || '<li class="p-4 text-gray-600">Nenhum usuário encontrado na tabela de perfis.</li>'}
+                    </ul>
+                `;
+
+            } catch (e) {
+                main.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded">Erro ao carregar lista de usuários: ${e.message}</div>`;
+            }
+        }
+        
+        function renderAddUserView(main) {
+            main.innerHTML = `
+                <h2 class="text-3xl font-semibold text-gray-800 mb-6">Adicionar Novo Usuário</h2>
+                <div class="bg-white p-6 rounded-xl shadow-lg max-w-xl mx-auto">
+                    <form id="add-user-form" class="space-y-4">
+                        
+                        <!-- Seleção de Papel -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Usuário (Papel)</label>
+                            <select id="role" name="role" required onchange="toggleCrpField(this.value)"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="" disabled selected>Selecione o Papel</option>
+                                <option value="psychologist">Psicólogo</option>
+                                <option value="patient">Paciente</option>
+                                <!-- Admin não pode ser criado aqui por questões de segurança -->
+                            </select>
+                        </div>
+                        
+                        <!-- Dados Comuns -->
+                        <div>
+                            <label for="full_name" class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                            <input type="text" id="full_name" name="full_name" required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                            <input type="email" id="email" name="email" required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Senha Inicial</label>
+                            <input type="password" id="password" name="password" required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                            <input type="tel" id="phone" name="phone" required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        
+                        <!-- Campo CRP (Exclusivo para Psicólogo) -->
+                        <div id="crp-field-container" class="hidden">
+                            <label for="crp" class="block text-sm font-medium text-gray-700 mb-1">CRP (Opcional)</label>
+                            <input type="text" id="crp" name="crp"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" placeholder="Ex: 01/12345">
+                            <p class="text-xs text-gray-500 mt-1">Apenas para cadastro de Psicólogos.</p>
+                        </div>
+                        
+                        <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out">
+                            Criar Usuário
+                        </button>
+                    </form>
+                </div>
+            `;
+            // Re-adiciona o listener de submissão do formulário
+            document.getElementById('add-user-form').addEventListener('submit', handleNewUserCreation);
+        }
+
+        function toggleCrpField(role) {
+            const crpContainer = document.getElementById('crp-field-container');
+            if (role === 'psychologist') {
+                crpContainer.classList.remove('hidden');
+                crpContainer.querySelector('#crp').setAttribute('required', 'required');
+            } else {
+                crpContainer.classList.add('hidden');
+                crpContainer.querySelector('#crp').removeAttribute('required');
+            }
+        }
+        
         async function renderRecentAppointments() {
             const container = document.getElementById('appointments-list-container');
             if (!container) return;
             
             try {
-                // Usamos o select com join para pegar os nomes, ordenamos por data
+                // Busca agendamentos com os nomes dos usuários (join)
                 const { data: apps, error } = await supabaseClient
                     .from('appointments')
                     .select('scheduled_date, patient:patient_id(full_name), psychologist:psychologist_id(full_name)')
@@ -356,7 +593,6 @@
                 if (error) throw error;
 
                 const list = apps.map(a => {
-                    // Garante que patient e psychologist são objetos (resultantes do join)
                     const patient = a.patient;
                     const psy = a.psychologist;
                     
@@ -380,50 +616,9 @@
             }
         }
 
-        async function renderUserList() {
-            const container = document.getElementById('users-list-container');
-            if (!container) return;
-            
-            try {
-                // Busca todos os usuários, ordenados por nome
-                const { data: users, error } = await supabaseClient
-                    .from('profiles')
-                    .select('*') 
-                    .order('full_name', { ascending: true });
-
-                if (error) throw error;
-                
-                // Ordenação manual para garantir, caso o order no Supabase falhe
-                users.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-
-                const list = users.map(u => {
-                    const statusClass = u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700';
-                    const roleClass = u.role === 'psychologist' ? 'bg-blue-100 text-blue-700' : (u.role === 'patient' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700');
-
-                    return `
-                        <li class="p-4 bg-white border border-gray-200 rounded-lg mb-3 flex justify-between items-center shadow-sm hover:shadow-md transition duration-150">
-                            <div class="flex-1 min-w-0">
-                                <p class="font-semibold text-lg text-gray-800">${u.full_name || 'Nome Não Informado'}</p>
-                                <p class="text-sm text-gray-600 truncate">${u.email || 'Email Não Informado'}</p>
-                            </div>
-                            <div class="flex items-center space-x-3 ml-4">
-                                <span class="px-2 py-1 text-xs font-medium rounded-full ${roleClass}">${u.role}</span>
-                                <span class="px-2 py-1 text-xs font-medium rounded-full ${statusClass}">${u.status}</span>
-                            </div>
-                        </li>
-                    `;
-                }).join('');
-
-                container.innerHTML = `<ul class="space-y-3 p-4 bg-white rounded-xl shadow-lg">${list || '<li class="p-4 text-gray-600">Nenhum usuário encontrado na tabela de perfis.</li>'}</ul>`;
-
-            } catch (e) {
-                container.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded">Erro ao carregar lista de usuários: ${e.message}</div>`;
-            }
-        }
-
 
         /* ------------------------
-           Escutas de Eventos
+           Escutas de Eventos e Render Principal
            ------------------------- */
 
         function initializeListeners() {
@@ -437,34 +632,38 @@
                     handleLogin(email, password);
                 });
             }
-
-            // Expondo para o HTML (mesmo que o código esteja no mesmo arquivo)
+            
+            // Expondo funções globais
             window.handleLogout = handleLogout;
             window.changeAdminTab = changeAdminTab;
+            window.toggleCrpField = toggleCrpField;
         }
-
-        /* ------------------------
-           Render principal
-           ------------------------- */
 
         function render() {
             const app = document.getElementById('app');
             if (!app) return console.error("#app não encontrado");
 
-            if (currentPage === 'login') { 
-                app.innerHTML = renderLogin(); 
-                initializeListeners(); // Inicializa escutas após renderizar o form
-                return; 
+            // Define qual tela principal carregar
+            switch (currentPage) {
+                case 'login': 
+                    app.innerHTML = renderLogin(); 
+                    break;
+                case 'admin': 
+                    app.innerHTML = renderAdminShell(); 
+                    renderAdminContent(); 
+                    break;
+                case 'psychologist': 
+                    app.innerHTML = renderPsychologistDashboard(); 
+                    break;
+                case 'patient': 
+                    app.innerHTML = renderPatientDashboard(); 
+                    break;
+                default:
+                    app.innerHTML = `<p class="p-8 text-center">Erro: Página desconhecida (${currentPage})</p>`;
+                    break;
             }
             
-            if (currentPage === 'admin') { 
-                app.innerHTML = renderAdminShell(); 
-                initializeListeners(); // Re-inicializa listeners para o logout, etc.
-                renderAdminContent(); 
-                return; 
-            }
-            
-            app.innerHTML = "<p>Página desconhecida</p>";
+            initializeListeners(); // Inicializa escutas (especialmente o form de login e o de adicionar usuário)
         }
 
         /* ------------------------
@@ -476,26 +675,25 @@
             // Tenta reautenticar (para casos de refresh de página)
             supabaseClient.auth.getSession().then(({ data: { session } }) => {
                 if (session) {
-                    // Se houver sessão ativa, verifica o perfil imediatamente
                     supabaseClient
                         .from('profiles')
                         .select('role')
                         .eq('id', session.user.id)
                         .single()
                         .then(({ data, error }) => {
-                            if (!error && data && data.role === 'admin') {
-                                currentPage = "admin";
-                                currentAuthSession = session;
-                                console.log("Sessão reativada. Papel: admin");
+                            if (!error && data) {
+                                // Redireciona para o dashboard correto
+                                currentPage = data.role;
+                                console.log(`Sessão reativada. Papel: ${data.role}`);
                             } else {
-                                console.log("Sessão encontrada, mas não é admin. Deslogando...");
-                                supabaseClient.auth.signOut(); // Desloga
+                                console.log("Sessão encontrada, mas perfil ou RLS falhou. Deslogando...");
+                                supabaseClient.auth.signOut(); 
                                 currentPage = "login";
                             }
                             render();
                         });
                 } else {
-                    render(); // Renderiza a tela de login
+                    render(); // Renderiza a tela de login genérica
                 }
             });
         });
