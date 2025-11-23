@@ -16,11 +16,30 @@ if (!supabaseClient) console.error("ERRO: Supabase não inicializado");
 let currentPage = "login";
 let currentAuthSession = null;
 let currentAdminTab = "dashboard";
+let globalMessage = { type: null, text: null }; // Novo estado para mensagens (toast)
+
+/* -------------------------
+   Função de Notificação (Toast)
+   ------------------------- */
+function showToast(type, text) {
+    globalMessage.type = type; // 'error', 'success', 'info'
+    globalMessage.text = text;
+    // O re-render é necessário para atualizar o DOM na tela de login/admin
+    if (currentPage === 'login') {
+        renderLogin();
+    } else {
+        render();
+    }
+    // Opcional: esconder a mensagem após X segundos (não implementado aqui para persistência)
+}
 
 /* -------------------------
    Autenticação básica
    ------------------------- */
 async function handleLogin(email, password) {
+  // Limpa mensagens anteriores
+  globalMessage = { type: null, text: null }; 
+    
   try {
     // 1. Logar no Supabase Auth
     const { data: { session }, error } = await supabaseClient.auth.signInWithPassword({
@@ -28,8 +47,14 @@ async function handleLogin(email, password) {
       password: password,
     });
 
-    if (error) throw new Error("Falha no login: " + error.message);
-    if (!session) throw new Error("Sessão não criada. Verifique credenciais.");
+    if (error) {
+        // Se for erro de credencial, o Supabase já retorna o erro
+        throw new Error(error.message); 
+    }
+    if (!session) {
+        // Isso é raro, mas garante que a sessão existe
+        throw new Error("Sessão não criada. Verifique credenciais.");
+    }
     
     const user = session.user;
     
@@ -40,22 +65,29 @@ async function handleLogin(email, password) {
       .eq('user_id', user.id)
       .limit(1);
 
-    if (rolesError) throw new Error("Erro ao buscar role: " + rolesError.message);
+    if (rolesError) {
+        throw new Error("Erro ao buscar role: " + rolesError.message);
+    }
     
     // Verificação defensiva: RLS pode retornar data nula ou array vazio
     if (!userRoles || userRoles.length === 0 || userRoles[0].role !== 'admin') {
-        throw new Error("Acesso negado: Usuário não é administrador ou role não encontrada.");
+        // Para segurança, desloga o usuário caso ele consiga logar mas não seja admin
+        await supabaseClient.auth.signOut();
+        throw new Error("Acesso negado: Somente administradores podem acessar este painel.");
     }
 
     // Login de administrador bem-sucedido
     currentAuthSession = session;
     currentPage = 'admin';
+    showToast('success', 'Login de administrador realizado com sucesso!');
     render();
 
   } catch (e) {
-    // Usando alert() provisório para erro fatal de login
-    alert(e.message); 
-    console.error(e);
+    // Exibe o erro na interface
+    showToast('error', e.message.includes('rate limit') 
+        ? "Limite de tentativas excedido (429). Aguarde 30 minutos ou use o painel Supabase." 
+        : `Falha no Login: ${e.message}`);
+    console.error("Erro no Login:", e);
     renderLogin(); // Volta para o login em caso de falha
   }
 }
@@ -64,8 +96,7 @@ function handleLogout() {
   // Limpa o estado da aplicação e força a volta para a página de login
   currentAuthSession = null;
   currentPage = 'login';
-  // Redireciona o usuário para a página de login
-  render();
+  showToast('info', 'Você saiu do painel de administração.');
   // Tenta fazer o logout no Supabase (assíncrono, mas não crucial para o fluxo)
   supabaseClient.auth.signOut().catch(e => console.error("Erro ao deslogar no Supabase:", e));
 }
@@ -75,8 +106,31 @@ function handleLogout() {
    ------------------------- */
 
 function renderLogin() {
+  
+  // Renderiza a mensagem global (Toast) se houver
+  let toastHTML = '';
+  if (globalMessage.text) {
+    const bgColor = globalMessage.type === 'error' ? 'bg-red-500' : 
+                    globalMessage.type === 'success' ? 'bg-green-500' : 'bg-blue-500';
+    
+    toastHTML = `
+      <div id="toast" class="absolute top-4 left-1/2 transform -translate-x-1/2 p-4 rounded-lg shadow-xl text-white font-medium ${bgColor} transition-opacity duration-300 z-50 max-w-sm w-full">
+        ${globalMessage.text}
+      </div>
+    `;
+  }
+    
+  // Limpa a mensagem após a renderização (para que não persista na próxima tela)
+  if (globalMessage.type) {
+      setTimeout(() => {
+          globalMessage = { type: null, text: null };
+      }, 500); // Dá tempo do usuário ver, mas não interfere nas próximas telas
+  }
+
+
   return `
-    <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+    <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4 relative">
+      ${toastHTML}
       <div class="glass w-full max-w-md p-8 space-y-6 rounded-xl shadow-2xl">
         <h2 class="text-3xl font-bold text-center text-gray-800">Psionline Admin</h2>
         <form id="loginForm" class="space-y-4">
@@ -161,6 +215,9 @@ function renderAdminShell() {
                 </div>
             </div>
         </main>
+        
+        <!-- Toast Container (Para mensagens de sucesso/erro) -->
+        <div id="toastContainer" class="fixed bottom-4 right-4 z-50"></div>
 
     </div>
     <script>
@@ -172,6 +229,30 @@ function renderAdminShell() {
                 window.render(); // Re-renderiza o shell para atualizar o estado da navegação
             };
         });
+        
+        // Exibe a mensagem flutuante (Toast)
+        if (window.globalMessage.text && window.globalMessage.type) {
+            const container = document.getElementById('toastContainer');
+            const type = window.globalMessage.type;
+            const text = window.globalMessage.text;
+            
+            const bgColor = type === 'error' ? 'bg-red-600' : 
+                            type === 'success' ? 'bg-green-600' : 'bg-blue-600';
+            
+            container.innerHTML = \`
+                <div class="\${bgColor} text-white p-4 rounded-lg shadow-2xl max-w-xs transition-opacity duration-300 transform translate-y-0" role="alert">
+                    \${text}
+                </div>
+            \`;
+            
+            // Limpa a mensagem após 5 segundos
+            setTimeout(() => {
+                container.innerHTML = '';
+                // Limpa o estado global após o timeout para evitar que apareça novamente
+                window.globalMessage = { type: null, text: null };
+            }, 5000);
+        }
+        
     </script>
   `;
 }
@@ -588,6 +669,8 @@ function render() {
   app.innerHTML = "<p>Página desconhecida</p>";
 }
 
-// Expõe a função render e handleLogout ao escopo global (Window) para que o index.html possa encontrá-las.
+// Expõe as variáveis e funções ao escopo global (Window) para que o index.html e os scripts internos possam encontrá-las.
 window.render = render;
+window.handleLogin = handleLogin; // Garantia de que o formulário de login encontra a função
 window.handleLogout = handleLogout;
+window.globalMessage = globalMessage; // Expondo o estado da mensagem
