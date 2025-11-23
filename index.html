@@ -3,33 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard do Psicólogo - PsicoConnect</title>
+    <title>Dashboard do Paciente - PsicoConnect</title>
     <!-- Carrega o Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f8fafc; /* Fundo suave */
-        }
-        /* Estilos para o ícone de hambúrguer */
-        .sidebar-toggle-btn {
-            z-index: 50; /* Garante que o botão fique sobreposto */
-        }
-        /* Estilos para a Sidebar */
-        #sidebar {
-            transition: transform 0.3s ease-in-out;
-            z-index: 40;
-            /* No mobile, ela deve estar escondida fora da tela */
-            transform: translateX(-100%);
-        }
-        /* Estilo para mostrar a Sidebar (usado via JS) */
-        #sidebar.open {
-            transform: translateX(0);
-        }
-        /* Camada de sobreposição para mobile */
-        #overlay {
-            z-index: 30;
+            background-color: #f8fafc;
+            min-height: 100vh;
         }
     </style>
 </head>
@@ -39,7 +21,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, query, where, onSnapshot, doc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, query, where, onSnapshot, doc, setDoc, updateDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // Variáveis Globais do Ambiente (Obrigatórias)
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -64,10 +46,8 @@
                 try {
                     if (initialAuthToken) {
                         await signInWithCustomToken(auth, initialAuthToken);
-                        console.log("Autenticação com token personalizado bem-sucedida.");
                     } else {
                         await signInAnonymously(auth);
-                        console.log("Autenticação anônima bem-sucedida.");
                     }
                 } catch (error) {
                     console.error("Erro na autenticação inicial:", error);
@@ -81,17 +61,13 @@
                 if (user) {
                     userId = user.uid;
                     document.getElementById('user-uid').textContent = userId;
-                    document.getElementById('auth-status').textContent = 'Autenticado';
-                    document.getElementById('auth-status').classList.add('text-green-500');
-                    document.getElementById('auth-status').classList.remove('text-red-500');
                     // Inicia o carregamento dos dados após a autenticação
-                    loadPatients();
+                    loadPatientData();
+                    loadTasks();
                 } else {
                     userId = null;
                     document.getElementById('user-uid').textContent = 'N/A';
-                    document.getElementById('auth-status').textContent = 'Não Autenticado';
-                    document.getElementById('auth-status').classList.add('text-red-500');
-                    document.getElementById('auth-status').classList.remove('text-green-500');
+                    showMessage('Sessão encerrada. Faça login novamente.', 'info');
                 }
             });
 
@@ -109,7 +85,7 @@
     // --- FUNÇÕES DE LÓGICA DO DASHBOARD ---
 
     /**
-     * Função para exibir mensagens na caixa de status/erro.
+     * Função para exibir mensagens.
      * @param {string} message - A mensagem a ser exibida.
      * @param {string} type - 'success', 'error', 'info'.
      */
@@ -123,7 +99,7 @@
         } else if (type === 'success') {
             box.classList.add('bg-green-500', 'text-white');
         } else {
-            box.classList.add('bg-indigo-500', 'text-white');
+            box.classList.add('bg-blue-500', 'text-white');
         }
         
         box.classList.remove('hidden');
@@ -133,288 +109,206 @@
     }
 
     /**
-     * Carrega e monitora os pacientes associados a este psicólogo.
+     * Carrega dados do paciente e próxima sessão (SIMULADO).
      */
-    function loadPatients() {
+    function loadPatientData() {
+        if (!isAuthReady || !userId) return;
+
+        // Simulando a busca por dados do paciente logado
+        const patientNameEl = document.getElementById('patient-name');
+        patientNameEl.textContent = "Olá, Paciente Exemplo!"; // Nome do paciente seria carregado aqui.
+
+        // Simulação de Próxima Sessão
+        const nextSessionEl = document.getElementById('next-session');
+        const sessionDate = new Date();
+        sessionDate.setDate(sessionDate.getDate() + 3); // Próxima sessão em 3 dias
+        
+        nextSessionEl.innerHTML = `
+            <div class="text-3xl font-bold text-indigo-700">${sessionDate.toLocaleDateString('pt-BR', { weekday: 'short', month: 'numeric', day: 'numeric' })}</div>
+            <div class="text-xl font-semibold text-gray-800">${sessionDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+        `;
+    }
+
+    /**
+     * Carrega e monitora as tarefas/atividades do paciente (DADOS PRIVADOS).
+     */
+    function loadTasks() {
         // Interrompe se a autenticação não estiver pronta ou userId não estiver disponível
         if (!isAuthReady || !userId || !db) return;
 
-        console.log(`Buscando pacientes para o psicólogo: ${userId}`);
+        console.log(`Buscando tarefas para o paciente: ${userId}`);
         
-        // Caminho da Coleção para dados públicos de pacientes associados ao psicólogo
-        // /artifacts/{appId}/public/data/patients
-        const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+        // Caminho da Coleção para dados PRIVADOS do paciente
+        // /artifacts/{appId}/users/{userId}/tasks
+        const tasksRef = collection(db, 'artifacts', appId, 'users', userId, 'tasks');
         
-        // Consulta: Filtra pacientes onde o campo 'psychologistId' é igual ao ID do usuário logado.
-        const q = query(patientsRef, where("psychologistId", "==", userId));
+        // Sem a função 'where', já que estamos na coleção privada do usuário
+        const q = query(tasksRef);
 
-        const patientsListEl = document.getElementById('patients-list');
-        patientsListEl.innerHTML = '<p class="text-center text-gray-500 mt-4">Carregando pacientes...</p>';
+        const tasksListEl = document.getElementById('tasks-list');
+        tasksListEl.innerHTML = '<p class="text-center text-gray-500 mt-4">Carregando atividades...</p>';
 
         // Monitora em tempo real a coleção
         onSnapshot(q, (snapshot) => {
-            const patients = [];
+            const tasks = [];
             snapshot.forEach((doc) => {
                 const data = doc.data();
-                patients.push({ id: doc.id, ...data });
+                tasks.push({ id: doc.id, ...data });
             });
 
-            renderPatients(patients);
+            renderTasks(tasks.sort((a, b) => a.isCompleted - b.isCompleted || a.createdAt - b.createdAt));
         }, (error) => {
-            console.error("Erro ao carregar pacientes:", error);
-            showMessage("Erro ao carregar a lista de pacientes.", 'error');
-            patientsListEl.innerHTML = '<p class="text-center text-red-500 mt-4">Falha ao carregar dados.</p>';
+            console.error("Erro ao carregar tarefas:", error);
+            showMessage("Erro ao carregar a lista de atividades.", 'error');
+            tasksListEl.innerHTML = '<p class="text-center text-red-500 mt-4">Falha ao carregar dados.</p>';
         });
     }
 
     /**
-     * Renderiza a lista de pacientes na interface.
-     * @param {Array<Object>} patients - Lista de objetos de pacientes.
+     * Renderiza a lista de tarefas/atividades na interface.
+     * @param {Array<Object>} tasks - Lista de objetos de tarefas.
      */
-    function renderPatients(patients) {
-        const patientsListEl = document.getElementById('patients-list');
-        patientsListEl.innerHTML = ''; // Limpa a lista existente
+    function renderTasks(tasks) {
+        const tasksListEl = document.getElementById('tasks-list');
+        tasksListEl.innerHTML = ''; 
 
-        if (patients.length === 0) {
-            patientsListEl.innerHTML = '<p class="text-center text-gray-500 mt-4">Nenhum paciente encontrado. Adicione um novo paciente.</p>';
+        if (tasks.length === 0) {
+            tasksListEl.innerHTML = '<p class="text-center text-gray-500 mt-4">Nenhuma atividade pendente. Que ótimo!</p>';
+            // Adiciona uma tarefa de exemplo se for o primeiro acesso, para fins de demonstração
+            if (isAuthReady && userId) {
+                 addInitialTask();
+            }
             return;
         }
 
-        patients.forEach(patient => {
-            const lastSession = patient.lastSessionDate ? new Date(patient.lastSessionDate).toLocaleDateString() : 'N/A';
+        tasks.forEach(task => {
+            const isChecked = task.isCompleted ? 'checked' : '';
+            const textStyle = task.isCompleted ? 'line-through text-gray-400' : 'text-gray-800';
             
             const item = document.createElement('div');
-            item.className = 'flex justify-between items-center p-4 mb-3 bg-white rounded-xl shadow-sm hover:shadow-md transition duration-200 border border-gray-100';
+            item.className = 'flex items-center justify-between p-4 mb-2 bg-white rounded-xl shadow-sm border border-gray-100 transition duration-150 hover:shadow-md';
             item.innerHTML = `
-                <div>
-                    <p class="text-lg font-semibold text-gray-800">${patient.name || 'Paciente Sem Nome'}</p>
-                    <p class="text-sm text-gray-500">ID: ${patient.id}</p>
-                    <p class="text-xs text-gray-400">Última Sessão: ${lastSession}</p>
+                <div class="flex items-center flex-1 min-w-0">
+                    <input type="checkbox" id="task-${task.id}" ${isChecked} onchange="toggleTask('${task.id}', event.target.checked)" 
+                           class="form-checkbox h-5 w-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer">
+                    <label for="task-${task.id}" class="ml-4 text-base font-medium ${textStyle} break-words cursor-pointer">
+                        ${task.description}
+                    </label>
                 </div>
-                <button onclick="viewPatient('${patient.id}', '${patient.name}')" class="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 bg-indigo-50 rounded-full transition duration-150">
-                    Ver Perfil
-                </button>
+                <span class="text-xs text-gray-500 ml-4">${task.isCompleted ? 'Concluída' : 'Pendente'}</span>
             `;
-            patientsListEl.appendChild(item);
+            tasksListEl.appendChild(item);
         });
     }
 
     /**
-     * Função de visualização de paciente (simulação).
-     * @param {string} id - ID do paciente.
-     * @param {string} name - Nome do paciente.
+     * Alterna o estado de conclusão de uma tarefa.
+     * @param {string} taskId - ID do documento da tarefa.
+     * @param {boolean} isCompleted - Novo estado de conclusão.
      */
-    window.viewPatient = function(id, name) {
-        showMessage(`Visualizando perfil de ${name} (ID: ${id}).`, 'info');
-        console.log(`Ação: Abrir perfil do paciente ID: ${id}`);
-        // Aqui, a lógica real abriria um modal ou navegaria para a página de detalhes do paciente.
-    }
-
-    /**
-     * Função para abrir o modal de adicionar paciente.
-     */
-    window.openAddPatientModal = function() {
-        document.getElementById('modal-backdrop').classList.remove('hidden');
-        document.getElementById('add-patient-modal').classList.remove('hidden');
-    }
-
-    /**
-     * Função para fechar o modal.
-     */
-    window.closeModal = function() {
-        document.getElementById('modal-backdrop').classList.add('hidden');
-        document.getElementById('add-patient-modal').classList.add('hidden');
-        document.getElementById('new-patient-form').reset(); // Limpa o formulário
-    }
-
-    /**
-     * Adiciona um novo paciente (simulação).
-     */
-    document.getElementById('new-patient-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
+    window.toggleTask = async function(taskId, isCompleted) {
         if (!userId || !db) {
             showMessage("Erro de autenticação/Firebase. Tente novamente.", 'error');
             return;
         }
 
-        const name = document.getElementById('patient-name').value;
-        const email = document.getElementById('patient-email').value;
-        const btn = document.getElementById('add-patient-btn');
-
-        btn.textContent = 'Salvando...';
-        btn.disabled = true;
-
         try {
-            // Cria um novo documento de paciente
-            const newPatientData = {
-                name: name,
-                email: email,
-                psychologistId: userId, // Liga o paciente ao psicólogo logado
-                createdAt: Date.now(),
-                lastSessionDate: Date.now(),
-                status: 'active'
-            };
-            
-            // Adiciona o documento na coleção pública 'patients'
-            // /artifacts/{appId}/public/data/patients
-            const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
-            await setDoc(doc(patientsRef), newPatientData); // Usando setDoc com doc() sem ID para gerar um ID automático
+            const taskDocRef = doc(db, 'artifacts', appId, 'users', userId, 'tasks', taskId);
+            await updateDoc(taskDocRef, {
+                isCompleted: isCompleted,
+                completedAt: isCompleted ? Date.now() : null
+            });
 
-            showMessage(`Paciente "${name}" adicionado com sucesso!`, 'success');
-            window.closeModal();
-
+            showMessage(isCompleted ? "Atividade marcada como concluída!" : "Atividade reaberta.", 'success');
         } catch (error) {
-            console.error("Erro ao adicionar paciente:", error);
-            showMessage(`Erro ao adicionar paciente: ${error.message}`, 'error');
-        } finally {
-            btn.textContent = 'Adicionar Paciente';
-            btn.disabled = false;
+            console.error("Erro ao atualizar tarefa:", error);
+            showMessage(`Falha ao atualizar a atividade.`, 'error');
         }
-    });
+    }
 
-    // --- LÓGICA DE INTERFACE ---
-    document.addEventListener('DOMContentLoaded', () => {
-        const sidebar = document.getElementById('sidebar');
-        const overlay = document.getElementById('overlay');
-        const sidebarToggle = document.getElementById('sidebar-toggle');
-
-        sidebarToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('hidden');
-        });
-
-        overlay.addEventListener('click', () => {
-            sidebar.classList.remove('open');
-            overlay.classList.add('hidden');
-        });
-    });
+    /**
+     * Função para adicionar uma tarefa inicial de demonstração.
+     */
+    async function addInitialTask() {
+        if (!userId || !db) return;
+        
+        try {
+            const tasksRef = collection(db, 'artifacts', appId, 'users', userId, 'tasks');
+            const initialTask = {
+                description: 'Escreva 3 coisas pelas quais você é grato(a) hoje.',
+                isCompleted: false,
+                createdAt: Date.now(),
+            };
+            // Usando setDoc com doc() sem ID para gerar um ID automático
+            await setDoc(doc(tasksRef), initialTask); 
+            console.log("Tarefa inicial de demonstração adicionada.");
+        } catch (error) {
+            console.error("Erro ao adicionar tarefa inicial:", error);
+        }
+    }
 
 </script>
 
-<!-- Barra Lateral (Sidebar) para Navegação -->
-<div id="sidebar" class="fixed inset-y-0 left-0 w-64 bg-white shadow-xl lg:translate-x-0 lg:static lg:inset-auto lg:shadow-none p-6 flex flex-col border-r border-gray-200">
-    <div class="flex items-center justify-between lg:justify-start mb-10">
-        <h2 class="text-3xl font-extrabold text-indigo-700">Psico<span class="text-gray-900">Connect</span></h2>
-        <!-- Botão de Fechar para Mobile -->
-        <button id="sidebar-close" onclick="document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay').classList.add('hidden');" class="text-gray-500 hover:text-gray-700 lg:hidden p-2">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-        </button>
-    </div>
+<!-- Conteúdo Principal -->
+<div class="flex flex-col p-4 sm:p-6 lg:p-8">
+    <header class="mb-8">
+        <div class="flex justify-between items-center">
+            <h1 id="patient-name" class="text-4xl font-extrabold text-gray-900">Olá!</h1>
+            <div class="text-right">
+                <p class="text-sm font-semibold text-gray-500">ID da Sessão:</p>
+                <p id="user-uid" class="text-xs text-gray-400 truncate w-32 sm:w-auto">N/A</p>
+            </div>
+        </div>
+        <p class="text-lg text-indigo-600 mt-1">Seu espaço para crescimento e cuidado.</p>
+    </header>
 
-    <!-- Navegação Principal -->
-    <nav class="flex-grow">
-        <a href="#" class="flex items-center p-3 text-sm font-semibold rounded-lg bg-indigo-50 text-indigo-700 mb-3">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
-            Dashboard
-        </a>
-        <a href="#" class="flex items-center p-3 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-800 mb-3">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            Agendamentos
-        </a>
-        <a href="#" class="flex items-center p-3 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-800 mb-3">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20v-2c-.516-.625-1.129-1.32-1.921-1.895M19 16.5V18a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2h4a2 2 0 012 2v7"></path></svg>
-            Relatórios
-        </a>
-        <a href="#" class="flex items-center p-3 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-800">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.942 3.313.805 2.551 2.433a1.724 1.724 0 00-.58 1.968c.379 1.83.189 3.551-.189 4.336a1.724 1.724 0 00-.58 1.968c-.762 1.628-2.532 2.47-3.55 1.551a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.942-3.313-.805-2.551-2.433a1.724 1.724 0 00-.58-1.968c-.379-1.83-.189-3.551.189-4.336a1.724 1.724 0 00.58-1.968c.762-1.628 2.532-2.47 3.55-1.551a1.724 1.724 0 002.573-1.066zM15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            Configurações
-        </a>
-    </nav>
-    
-    <!-- Informações de Status de Autenticação -->
-    <div class="mt-auto pt-6 border-t border-gray-200">
-        <p class="text-xs font-semibold text-gray-600 mb-1">Status da Sessão:</p>
-        <p id="auth-status" class="text-xs font-medium text-red-500">Não Autenticado</p>
-        <p class="text-xs text-gray-400 truncate mt-1">UID: <span id="user-uid">N/A</span></p>
-    </div>
-</div>
-
-<!-- Container Principal do Layout -->
-<div class="flex flex-col lg:flex-row min-h-screen">
-
-    <!-- Overlay para fechar a sidebar no mobile -->
-    <div id="overlay" class="fixed inset-0 bg-black opacity-50 hidden lg:hidden"></div>
-
-    <!-- Conteúdo Principal -->
-    <main class="flex-1 p-4 sm:p-6 lg:p-8">
-        <!-- Barra Superior (Header no mobile) -->
-        <header class="flex justify-between items-center lg:hidden mb-6">
-            <h1 class="text-2xl font-bold text-indigo-700">Dashboard</h1>
-            <button id="sidebar-toggle" class="sidebar-toggle-btn p-2 rounded-lg text-gray-600 hover:bg-gray-100">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    <!-- Resumos (Próxima Sessão e Mensagens) -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        
+        <!-- Próxima Sessão -->
+        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-500 flex justify-between items-center">
+            <div>
+                <p class="text-sm font-medium text-gray-500 mb-2">Sua Próxima Sessão</p>
+                <div id="next-session" class="flex flex-col">
+                    <!-- Data e hora serão preenchidas pelo JS -->
+                    <div class="text-3xl font-bold text-indigo-700">--/--</div>
+                    <div class="text-xl font-semibold text-gray-800">--:--</div>
+                </div>
+            </div>
+            <button class="text-indigo-600 hover:text-indigo-800 p-2 rounded-full bg-indigo-100 transition duration-150">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101M20.121 9.929a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1.102-1.101M20 14h-4l-3 3-4-4"></path></svg>
             </button>
-        </header>
-
-        <!-- Título da Seção -->
-        <h1 class="text-3xl font-bold text-gray-900 hidden lg:block mb-8">Gestão de Pacientes</h1>
-
-        <!-- Cartões de Resumo (Stats) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
-                <p class="text-sm font-medium text-gray-500">Total de Pacientes</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1">12</p>
-            </div>
-            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
-                <p class="text-sm font-medium text-gray-500">Agendados Hoje</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1">3</p>
-            </div>
-            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
-                <p class="text-sm font-medium text-gray-500">Próxima Sessão</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1">15:00</p>
-            </div>
-            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
-                <p class="text-sm font-medium text-gray-500">Pendências</p>
-                <p class="text-2xl font-bold text-red-500 mt-1">2</p>
-            </div>
         </div>
 
-        <!-- Seção de Lista de Pacientes -->
-        <div class="bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-semibold text-gray-900">Meus Pacientes Ativos</h2>
-                <button onclick="openAddPatientModal()" class="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-indigo-700 transition duration-150 shadow-md">
-                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                    Adicionar Novo
-                </button>
-            </div>
-
-            <!-- Lista de Pacientes (Preenchida pelo JS) -->
-            <div id="patients-list" class="space-y-3">
-                <!-- Itens serão injetados aqui após o carregamento do Firestore -->
-            </div>
+        <!-- Mensagens/Lembretes -->
+        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-yellow-500">
+            <p class="text-sm font-medium text-gray-500 mb-2">Mensagens Recentes</p>
+            <p class="text-lg font-semibold text-gray-800">Lembrete: Mande seu Diário da Semana.</p>
+            <p class="text-sm text-yellow-600 mt-2">Enviado pela Dra. Ana, ontem às 10:30.</p>
         </div>
-    </main>
+
+        <!-- Área de Recursos -->
+        <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-green-500">
+            <p class="text-sm font-medium text-gray-500 mb-2">Seu Psicólogo</p>
+            <p class="text-lg font-semibold text-gray-800">Dr(a). Ana Silva</p>
+            <p class="text-sm text-green-600 mt-2">Clique para ver contatos e biografia.</p>
+        </div>
+    </div>
+
+    <!-- Seção de Atividades/Tarefas -->
+    <div class="bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
+        <h2 class="text-2xl font-bold text-gray-900 mb-6">Minhas Atividades & Tarefas</h2>
+        
+        <!-- Lista de Tarefas (Preenchida pelo JS) -->
+        <div id="tasks-list" class="space-y-4">
+            <!-- Itens de tarefas serão injetados aqui -->
+        </div>
+    </div>
+
 </div>
 
 <!-- Notificação de Status (Toast) -->
 <div id="notification-box" class="hidden"></div>
-
-<!-- Modal de Adicionar Novo Paciente -->
-<div id="modal-backdrop" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 transition-opacity duration-300"></div>
-
-<div id="add-patient-modal" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-xl shadow-3xl p-6 hidden z-50 border border-gray-200">
-    <div class="flex justify-between items-center mb-6">
-        <h3 class="text-xl font-bold text-gray-800">Novo Paciente</h3>
-        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-        </button>
-    </div>
-    
-    <form id="new-patient-form">
-        <div class="mb-4">
-            <label for="patient-name" class="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
-            <input type="text" id="patient-name" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
-        </div>
-        <div class="mb-6">
-            <label for="patient-email" class="block text-sm font-medium text-gray-700 mb-2">E-mail (Opcional)</label>
-            <input type="email" id="patient-email" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
-        </div>
-        
-        <button type="submit" id="add-patient-btn" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300 shadow-lg">
-            Adicionar Paciente
-        </button>
-    </form>
-</div>
 
 </body>
 </html>
