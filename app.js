@@ -16,6 +16,7 @@ if (!supabaseClient) console.error("ERRO: Supabase não inicializado");
 let currentPage = "login";
 let currentAuthSession = null;
 let currentAdminTab = "dashboard";
+let loginError = ""; // Novo estado para exibir erros de login na UI
 
 /* -------------------------
    Utilitários e Formatação
@@ -40,13 +41,18 @@ const formatDate = (dateString) => {
    Autenticação básica
    ------------------------- */
 async function handleLogin(email, password) {
+    loginError = ""; // Limpa erros anteriores
+    render(); // Re-renderiza para limpar a tela
+
     const { data, error } = await supabaseClient.auth.signInWithPassword({
         email: email,
         password: password
     });
 
     if (error) {
-        alert("Falha no login: " + error.message);
+        console.error("ERRO DE AUTENTICAÇÃO:", error);
+        loginError = "Falha no login. Verifique seu e-mail e senha. Mensagem: " + error.message;
+        render();
         return;
     }
 
@@ -59,14 +65,26 @@ async function handleLogin(email, password) {
         .eq('id', data.user.id)
         .single();
 
-    if (profileError || !profileData || profileData.role !== 'admin') {
-        alert("Acesso negado. Usuário não é administrador.");
+    if (profileError) {
+        console.error("ERRO AO CARREGAR PERFIL:", profileError);
+        loginError = "Erro ao carregar seu perfil. Tente novamente.";
         await supabaseClient.auth.signOut();
         currentAuthSession = null;
-        render(); // Volta para a tela de login
+        render();
         return;
     }
-
+    
+    // VERIFICAÇÃO CRÍTICA DO PAPEL (ROLE)
+    if (!profileData || profileData.role !== 'admin') {
+        console.warn("ACESSO NEGADO: Usuário logado tem o papel:", profileData?.role);
+        loginError = "Acesso negado. Esta área é restrita a administradores.";
+        await supabaseClient.auth.signOut();
+        currentAuthSession = null;
+        render();
+        return;
+    }
+    
+    // Se tudo estiver OK:
     currentPage = "admin";
     render();
 }
@@ -76,6 +94,7 @@ async function handleLogout() {
     currentAuthSession = null;
     currentPage = "login";
     currentAdminTab = "dashboard";
+    loginError = ""; // Limpa o erro ao deslogar
     render();
 }
 
@@ -83,7 +102,8 @@ async function handleLogout() {
 supabaseClient.auth.onAuthStateChange((event, session) => {
     currentAuthSession = session;
     if (event === 'SIGNED_IN' && session) {
-        // Quando o usuário faz login, buscamos o perfil para definir a página correta
+        // A lógica principal de permissão está em handleLogin,
+        // mas esta é a lógica de reautenticação após um refresh.
         supabaseClient
             .from('profiles')
             .select('role')
@@ -93,7 +113,6 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
                 if (!error && data && data.role === 'admin') {
                     currentPage = "admin";
                 } else {
-                    // Se não for admin ou houver erro, desloga
                     supabaseClient.auth.signOut();
                     currentPage = "login";
                 }
@@ -111,11 +130,21 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
    ------------------------- */
 
 function renderLogin() {
+    // Alerta de erro na UI
+    const errorAlert = loginError ? `
+        <div class="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-xl text-sm font-medium">
+            ${loginError}
+        </div>
+    ` : '';
+
     return `
     <div class="flex justify-center items-center h-screen bg-gray-100 p-4">
         <div class="glass p-8 rounded-2xl shadow-2xl max-w-sm w-full border border-gray-200">
             <h1 class="text-3xl font-extrabold text-gray-900 mb-6 text-center">Psionline Login</h1>
             <p class="text-sm text-gray-500 mb-6 text-center">Apenas para administradores.</p>
+            
+            ${errorAlert}
+            
             <form id="login-form">
                 <div class="mb-4">
                     <label for="email" class="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
@@ -147,8 +176,6 @@ function renderLogin() {
    ------------------------- */
 
 function renderAdminShell() {
-    const isAdmin = currentAuthSession?.user?.role === 'admin';
-
     const renderNavButton = (tab, label, iconClass) => {
         const isActive = currentAdminTab === tab;
         const activeClasses = 'bg-indigo-600 text-white shadow-lg';
@@ -238,7 +265,6 @@ async function renderAppointmentsDashboard() {
 
     try {
         // 1. Fetch Agendamentos com Joins
-        // O RLS garante que só veremos o que nos pertence (Admin vê tudo, Psicólogo vê os seus)
         const { data: appointments, error } = await supabaseClient
             .from('appointments')
             .select(`
@@ -246,7 +272,7 @@ async function renderAppointmentsDashboard() {
                 patient:patient_id(full_name, email, phone),
                 psychologist:psychologist_id(full_name, email, phone)
             `)
-            .order('scheduled_date', { ascending: true }); // Ordena por data
+            .order('scheduled_date', { ascending: true });
 
         if (error) throw error;
 
@@ -310,7 +336,6 @@ async function renderAppointmentsDashboard() {
         console.error("Erro no renderAppointmentsDashboard:", e);
     }
     
-    // AQUI ESTAVA A CHAVE EXTRA QUE CAUSAVA O ERRO DE SINTAXE.
     contentDiv.innerHTML = html;
 }
 
@@ -326,7 +351,6 @@ async function renderProfilesDashboard() {
 
     try {
         // A busca simples funciona graças ao RLS:
-        // Admin: vê todos; Psicólogo: vê só o próprio; Paciente: vê só o próprio.
         const { data: profiles, error } = await supabaseClient
             .from('profiles')
             .select('*')
@@ -458,3 +482,6 @@ if (!currentAuthSession) {
 } else {
     render();
 }
+    render();
+}
+
