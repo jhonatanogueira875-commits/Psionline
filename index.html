@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Saúde Mental - Cadastro e Diário</title>
+    <title>Diário de Saúde Mental - Cadastro e Acompanhamento</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -58,15 +58,15 @@
     <div id="role-selection-view" class="view flex items-center justify-center min-h-screen p-4">
         <div class="card w-full max-w-md p-8 text-center">
             <!-- A mensagem de erro será inserida aqui se houver falha de config -->
-            <h1 class="text-3xl font-bold text-gray-800 mb-6">Bem-vindo(a) à Plataforma</h1>
+            <h1 class="text-3xl font-bold text-gray-800 mb-6">Diário de Saúde Mental</h1>
             <p class="text-gray-600 mb-8">Por favor, selecione seu tipo de perfil para continuar.</p>
 
             <div class="space-y-4">
                 <button onclick="showView('registration-patient-view')" class="btn-primary w-full py-3 rounded-xl text-lg font-semibold shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Sou Paciente (Cadastro)
+                    Sou Paciente (Cadastre-se)
                 </button>
                 <button onclick="showView('registration-psychologist-view')" class="btn-primary w-full py-3 rounded-xl text-lg font-semibold shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Sou Psicólogo(a) (Cadastro)
+                    Sou Psicólogo(a) (Cadastre-se)
                 </button>
                 
                 <!-- NOVOS BOTÕES DE LOGIN RÁPIDO (MOCK) -->
@@ -364,6 +364,9 @@
                         // Se deslogado, volta para a tela de seleção de perfil.
                         userId = null;
                         userRole = null;
+                         // Limpa IDs exibidos ao deslogar
+                        document.getElementById('current-user-id-patient').textContent = "Deslogado";
+                        document.getElementById('current-user-id-psychologist').textContent = "Deslogado";
                         showView('role-selection-view');
                     } else if (!user && !authReady) {
                          // Primeira carga e não autenticado
@@ -448,7 +451,7 @@
                 userRole = role; 
                 
                 if (role === 'patient') {
-                    document.getElementById('display-patient-id').textContent = userId;
+                    document.getElementById('display-patient-id').textContent = userId + " (MOCK)";
                     showView('patient-diary-view');
                     
                     // Exibe um registro de humor simulado para mostrar a tela
@@ -456,7 +459,7 @@
 
 
                 } else {
-                    document.getElementById('display-psychologist-id').textContent = userId;
+                    document.getElementById('display-psychologist-id').textContent = userId + " (MOCK)";
                     showView('psychologist-dashboard-view');
                 }
                 return;
@@ -536,7 +539,7 @@
             
             if (!moodLevelInput.value) {
                 console.error("Por favor, selecione seu nível de humor.");
-                // Adicionar feedback visual aqui (usando um modal simples, por exemplo)
+                // Em um app real, seria um modal ou feedback na tela
                 return;
             }
 
@@ -548,6 +551,7 @@
                     id: crypto.randomUUID(),
                     level: parseInt(selectedMood, 10),
                     notes: moodNotes,
+                    // Use new Date() para mock mode
                     timestamp: new Date()
                 };
                 
@@ -625,10 +629,10 @@
             });
         }
 
-        // Função para renderizar os registros (CORREÇÃO DE ERRO APLICADA AQUI)
+        // Função para renderizar os registros
         function renderMoodEntries(moods) {
             const moodList = document.getElementById('mood-list');
-            const noRecordsEl = document.getElementById('no-mood-records'); // Elemento de aviso de lista vazia
+            const noRecordsEl = document.getElementById('no-mood-records'); 
 
             if (!moodList) {
                 console.error("ERRO DE RENDERIZAÇÃO: Elemento 'mood-list' não encontrado.");
@@ -644,7 +648,8 @@
            
             // Se a lista estiver vazia, exibe o aviso
             if (moods.length === 0) {
-                if (noRecordsEl) noRecordsEl.style.display = 'block';
+                // A correção de bug está aqui: verifica se o elemento existe antes de tentar acessar 'style'
+                if (noRecordsEl) noRecordsEl.style.display = 'block'; 
                 return;
             }
             // Se houver itens, esconde o aviso
