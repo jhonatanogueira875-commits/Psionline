@@ -39,11 +39,23 @@
             box-shadow: 0 0 0 2px #c3dafe;
             background-color: #fff;
         }
+        .patient-item {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .patient-item:hover {
+            background-color: #f3f4f6;
+        }
+        .patient-item.selected {
+            background-color: #e0e7ff;
+            font-weight: 600;
+            border-left: 4px solid #4c51bf;
+        }
     </style>
 </head>
 <body>
 
-    <!-- Contêiner Principal de Carregamento (Adicionado fixed/z-50) -->
+    <!-- Contêiner Principal de Carregamento -->
     <div id="loading-view" class="loading-container fixed inset-0 z-50 bg-white">
         <div class="flex flex-col items-center">
             <svg class="animate-spin -ml-1 mr-3 h-10 w-10 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -57,7 +69,7 @@
     <!-- 1. Seleção de Perfil (Role Selection) -->
     <div id="role-selection-view" class="view flex items-center justify-center min-h-screen p-4">
         <div class="card w-full max-w-md p-8 text-center">
-            <!-- A mensagem de erro será inserida aqui se houver falha de config -->
+            <!-- Mensagem de erro/aviso de simulação será inserida aqui se houver falha de config -->
             <h1 class="text-3xl font-bold text-gray-800 mb-6">Diário de Saúde Mental</h1>
             <p class="text-gray-600 mb-8">Por favor, selecione seu tipo de perfil para continuar.</p>
 
@@ -69,7 +81,7 @@
                     Sou Psicólogo(a) (Cadastre-se)
                 </button>
                 
-                <!-- NOVOS BOTÕES DE LOGIN RÁPIDO (MOCK) -->
+                <!-- BOTÕES DE LOGIN RÁPIDO (MOCK) -->
                 <div id="mock-login-buttons" class="mt-6 pt-4 border-t border-dashed" style="display: none;">
                      <p class="text-sm text-red-500 mb-4 font-semibold">
                         Modo de Simulação: Acesso Rápido
@@ -89,7 +101,6 @@
     <div id="registration-patient-view" class="view flex items-center justify-center min-h-screen p-4">
         <div class="card w-full max-w-md p-8">
             <h2 class="text-2xl font-bold text-gray-800 mb-6">Cadastro de Paciente</h2>
-            <!-- Feedback de simulação adicionado aqui -->
             <p class="text-sm text-red-500 mb-4 font-semibold" id="patient-mock-warning" style="display:none;">
                 AVISO: Modo de Simulação Ativo. O registro não será salvo no banco de dados.
             </p>
@@ -117,7 +128,6 @@
     <div id="registration-psychologist-view" class="view flex items-center justify-center min-h-screen p-4">
         <div class="card w-full max-w-md p-8">
             <h2 class="text-2xl font-bold text-gray-800 mb-6">Cadastro de Psicólogo(a)</h2>
-            <!-- Feedback de simulação adicionado aqui -->
             <p class="text-sm text-red-500 mb-4 font-semibold" id="psychologist-mock-warning" style="display:none;">
                 AVISO: Modo de Simulação Ativo. O registro não será salvo no banco de dados.
             </p>
@@ -195,7 +205,6 @@
                 Meus Últimos Registros <span id="list-title-suffix" class="text-base text-gray-500 font-normal ml-2"></span>
             </h3>
             
-            <!-- CORREÇÃO DO BUG: Elemento 'no-mood-records' fora da área de limpeza da lista -->
             <p class="text-gray-500 card p-4 italic text-sm text-center" id="no-mood-records" style="display: none;">
                 Nenhum registro encontrado. Comece a registrar seu humor!
             </p>
@@ -210,20 +219,53 @@
 
     <!-- 5. Dashboard do Psicólogo (Psychologist Main View) -->
     <div id="psychologist-dashboard-view" class="view min-h-screen p-4 sm:p-8">
-        <div class="max-w-4xl mx-auto py-8">
+        <div class="max-w-6xl mx-auto py-8">
             <header class="mb-8">
                 <h1 class="text-3xl font-extrabold text-green-700">Dashboard do Psicólogo(a)</h1>
-                <p class="text-gray-500">Olá, Psicólogo(a)! Gerencie seus pacientes e acompanhe o progresso.</p>
-                 <!-- Aviso de simulação no dashboard -->
+                <p class="text-gray-500">Olá, Psicólogo(a)! Gerencie e acompanhe seus pacientes.</p>
                 <p class="text-sm text-red-500 mt-2 font-semibold" id="psychologist-view-mock-warning" style="display:none;">
-                    AVISO: Modo de Simulação. O gerenciamento de pacientes não funcionará.
+                    AVISO: Modo de Simulação. A lista de pacientes e dados são simulados.
                 </p>
                 <p class="text-xs text-gray-400 mt-2">Seu ID: <span id="display-psychologist-id" class="font-mono"></span></p>
             </header>
             
-            <div class="card p-6 mb-8">
-                <h3 class="text-xl font-semibold mb-4">Funcionalidades Principais</h3>
-                <p class="text-gray-600">O dashboard do psicólogo está pronto para ser expandido com as funcionalidades de gerenciamento de pacientes.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- COLUNA 1: Lista de Pacientes -->
+                <div class="lg:col-span-1">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Pacientes Registrados</h3>
+                    <div class="card p-4 min-h-[500px] overflow-y-auto">
+                        <p id="no-patients-found" class="text-center text-gray-500 italic p-4" style="display:none;">Nenhum paciente encontrado.</p>
+                        <div id="patient-list" class="space-y-2">
+                            <!-- Lista de pacientes será injetada aqui -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- COLUNA 2/3: Detalhes do Paciente -->
+                <div class="lg:col-span-2">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Detalhes do Paciente</h3>
+                    <div class="card p-6 min-h-[500px]">
+                        <div id="patient-details">
+                            <p class="text-center text-gray-500 italic p-12" id="select-patient-message">
+                                Selecione um paciente na lista à esquerda para visualizar seu histórico de humor.
+                            </p>
+                            
+                            <!-- Header de Detalhes (Visível apenas após seleção) -->
+                            <div id="patient-mood-header" class="mb-6 border-b pb-2" style="display: none;">
+                                <h4 class="text-2xl font-bold text-indigo-700" id="selected-patient-name"></h4>
+                                <p class="text-sm text-gray-500">ID: <span id="selected-patient-id" class="font-mono text-xs"></span></p>
+                            </div>
+                            
+                            <!-- Lista de Humores do Paciente Selecionado -->
+                            <div id="patient-mood-history" class="space-y-3">
+                                <!-- Histórico de humor será injetado aqui -->
+                            </div>
+                             <p class="text-center text-gray-500 italic p-4" id="no-mood-records-patient-view" style="display: none;">
+                                Este paciente ainda não possui registros de humor.
+                            </p>
+                        </div>
+                    </div>
+                </div>
             </div>
             
             <button onclick="signOutUser()" class="btn-secondary mt-8 py-2 px-4 rounded-lg font-semibold">Sair</button>
@@ -234,7 +276,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, addDoc, onSnapshot, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, addDoc, onSnapshot, serverTimestamp, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- Variáveis Globais do Canvas (MANDATÓRIO) ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -243,11 +285,9 @@
         let firebaseConfig = null;
         try {
             // Tenta analisar a configuração JSON fornecida pelo ambiente
-            // A CORREÇÃO MAIS IMPORTANTE: garante que se __firebase_config for vazio, ele se torna um objeto vazio, e não null, para evitar erros de JSON.parse
             const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
             firebaseConfig = JSON.parse(configString);
         } catch (e) {
-            // Em caso de falha de análise (raro, mas possível), trata como configuração vazia
             console.warn("Aviso: Falha ao tentar analisar __firebase_config. Assumindo configuração vazia.");
             firebaseConfig = {};
         }
@@ -261,9 +301,13 @@
         let authReady = false;
         let isMockMode = false; 
 
-        // Variável de estado para o formulário de humor
+        // Variável de estado para o formulário de humor do paciente
         let selectedMood = null;
         
+        // Mapa para armazenar temporariamente pacientes e seus IDs (apenas para o mock mode)
+        let mockPatients = [];
+        let selectedMockPatientId = null; 
+
         // Função para esconder o loading-view explicitamente (CRÍTICO)
         window.hideLoading = function() {
             const loadingView = document.getElementById('loading-view');
@@ -285,23 +329,19 @@
                 hideLoading(); 
             }
             
-            // Se estiver em modo mock, mostra os avisos de simulação
+            // Lógica de warnings e botões mock
             if (isMockMode) {
-                // Mostra os botões de login rápido (só na tela de seleção)
                 document.getElementById('mock-login-buttons').style.display = viewId === 'role-selection-view' ? 'block' : 'none';
+                
+                ['patient-mock-warning', 'psychologist-mock-warning', 'patient-view-mock-warning', 'psychologist-view-mock-warning'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = 'none';
+                });
 
-                // Usamos verificação de existência para garantir que o elemento está na view ativa
-                const patientMockWarning = document.getElementById('patient-mock-warning');
-                if (patientMockWarning) patientMockWarning.style.display = viewId === 'registration-patient-view' ? 'block' : 'none';
-                
-                const psychologistMockWarning = document.getElementById('psychologist-mock-warning');
-                if (psychologistMockWarning) psychologistMockWarning.style.display = viewId === 'registration-psychologist-view' ? 'block' : 'none';
-                
-                const patientViewMockWarning = document.getElementById('patient-view-mock-warning');
-                if (patientViewMockWarning) patientViewMockWarning.style.display = viewId === 'patient-diary-view' ? 'block' : 'none';
-                
-                const psychologistViewMockWarning = document.getElementById('psychologist-view-mock-warning');
-                if (psychologistViewMockWarning) psychologistViewMockWarning.style.display = viewId === 'psychologist-dashboard-view' ? 'block' : 'none';
+                if (viewId === 'registration-patient-view') document.getElementById('patient-mock-warning').style.display = 'block';
+                if (viewId === 'registration-psychologist-view') document.getElementById('psychologist-mock-warning').style.display = 'block';
+                if (viewId === 'patient-diary-view') document.getElementById('patient-view-mock-warning').style.display = 'block';
+                if (viewId === 'psychologist-dashboard-view') document.getElementById('psychologist-view-mock-warning').style.display = 'block';
             }
         }
 
@@ -311,33 +351,24 @@
             if (Object.keys(firebaseConfig).length === 0) {
                 console.error("ERRO: Configuração do Firebase vazia. Não é possível conectar ao banco de dados. Entrando em Modo de Simulação (Mock Mode).");
                 loadingMessageEl.textContent = "ERRO: Configuração do Firebase vazia. Entrando em Modo de Simulação (Mock Mode).";
-                isMockMode = true; // Ativa o modo mock
-
-                // Simula um ID de usuário
+                isMockMode = true; 
                 userId = crypto.randomUUID(); 
                 
-                // Atualiza IDs nos forms de cadastro e exibe o aviso
                 document.getElementById('current-user-id-patient').textContent = userId + " (MOCK)";
                 document.getElementById('current-user-id-psychologist').textContent = userId + " (MOCK)";
                 
-                // Força o roteamento para a tela de seleção de perfil
                 setTimeout(() => {
                     const roleSelectionViewCard = document.getElementById('role-selection-view').querySelector('.card');
-                    
                     let errorMsg = document.createElement('p');
                     errorMsg.className = 'text-red-600 mb-4 font-semibold';
                     errorMsg.textContent = 'ERRO: Falha na conexão com o banco de dados. O registro de usuários não funcionará (Modo Simulação).';
                     if (!roleSelectionViewCard.querySelector('.text-red-600')) {
                         roleSelectionViewCard.prepend(errorMsg);
                     }
-                    
                     showView('role-selection-view');
                 }, 200); 
-                
                 return;
             }
-            
-            // setLogLevel('debug'); // Descomente para debug do Firestore
             
             try {
                 loadingMessageEl.textContent = "Inicializando serviços do Firebase...";
@@ -345,24 +376,18 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // Configurar persistência de sessão
                 await setPersistence(auth, browserSessionPersistence);
-                
                 loadingMessageEl.textContent = "Autenticando usuário...";
 
-                // Tenta autenticar
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
                     await signInAnonymously(auth);
                 }
 
-                // O listener onAuthStateChanged cuidará do roteamento após o login
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
-                        console.log("Usuário autenticado:", userId);
-
                         // Atualiza IDs nos forms de cadastro
                         document.getElementById('current-user-id-patient').textContent = userId;
                         document.getElementById('current-user-id-psychologist').textContent = userId;
@@ -374,7 +399,6 @@
                         // Se deslogado, volta para a tela de seleção de perfil.
                         userId = null;
                         userRole = null;
-                         // Limpa IDs exibidos ao deslogar
                         document.getElementById('current-user-id-patient').textContent = "Deslogado";
                         document.getElementById('current-user-id-psychologist').textContent = "Deslogado";
                         showView('role-selection-view');
@@ -387,8 +411,7 @@
 
             } catch (error) {
                 console.error("Erro na inicialização ou autenticação:", error);
-                loadingMessageEl.textContent = "Falha grave ao conectar ou autenticar no serviço. Tente recarregar. (Verifique o console para mais detalhes)";
-                // Se falhar de forma grave, ainda tenta o mock fallback
+                loadingMessageEl.textContent = "Falha grave ao conectar ou autenticar no serviço. Tente recarregar.";
                 isMockMode = true; 
                 userId = crypto.randomUUID();
                 showView('role-selection-view'); 
@@ -397,20 +420,17 @@
 
         // Função para verificar o perfil (role) do usuário e rotear
         async function checkAndRouteUser() {
-            if (isMockMode || !userId || !db) {
-                // Em mock mode, não há perfil salvo, então sempre vai para a seleção
+            if (isMockMode || !userId) {
                 showView('role-selection-view');
                 return;
             }
 
             try {
-                // Caminho para o documento de perfil (role)
                 const profileDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profile', 'role');
                 const docSnap = await getDoc(profileDocRef);
 
                 if (docSnap.exists()) {
                     userRole = docSnap.data().role;
-                    console.log("Perfil encontrado:", userRole);
 
                     // Usuário JÁ REGISTRADO, roteamento direto
                     if (userRole === 'patient') {
@@ -420,18 +440,16 @@
                     } else if (userRole === 'psychologist') {
                         document.getElementById('display-psychologist-id').textContent = userId;
                         showView('psychologist-dashboard-view');
+                        startPsychologistListener(); // NOVO: Inicia o listener para o dashboard
                     } else {
-                        // Perfil inválido, reverter para seleção
                         showView('role-selection-view');
                     }
                 } else {
                     // Usuário AUTENTICADO, mas SEM PERFIL (PRIMEIRO ACESSO)
-                    console.log("Usuário autenticado, mas sem perfil. Mostrar seleção de perfil.");
                     showView('role-selection-view');
                 }
             } catch (e) {
                 console.error("Erro ao verificar o perfil do usuário:", e);
-                // Em caso de erro ao buscar o perfil, assumimos que precisamos registrar
                 showView('role-selection-view');
             }
         }
@@ -444,46 +462,53 @@
             }
             
             // Simula o registro e roteia
-            registerUser(null, role); // Passamos null em vez de um evento
+            registerUser(null, role); 
         }
 
         // --- Funções de Cadastro (Registro) ---
 
         async function registerUser(event, role) {
-            // Previne o comportamento padrão do submit, a menos que seja um evento simulado
             if (event && event.preventDefault) {
                 event.preventDefault();
             }
             
             if (isMockMode) {
                 // --- LÓGICA DE SIMULAÇÃO (MOCK) ---
-                console.warn(`[MOCK MODE] Simulação de registro de ${role} bem-sucedida.`);
                 userRole = role; 
                 
+                // Em mock mode, precisamos registrar o "patient" para que o "psychologist" possa encontrá-lo
                 if (role === 'patient') {
+                    const name = document.getElementById('patient-name').value.trim() || 'Paciente Mock';
+                    const newPatient = { id: userId, name: name, role: 'patient' };
+                    
+                    let existingPatients = JSON.parse(localStorage.getItem('mockPatients') || '[]');
+                    // Garante que o paciente mock não é adicionado duas vezes
+                    if (!existingPatients.find(p => p.id === userId)) {
+                        existingPatients.push(newPatient);
+                        localStorage.setItem('mockPatients', JSON.stringify(existingPatients));
+                    }
+                    
                     document.getElementById('display-patient-id').textContent = userId + " (MOCK)";
                     showView('patient-diary-view');
-                    
-                    // Exibe um registro de humor simulado para mostrar a tela
-                    renderMoodEntries(JSON.parse(localStorage.getItem('mockMoods') || '[]'));
+                    startMoodDiaryListener(); // Inicia o listener mock
 
-
-                } else {
+                } else { // role === 'psychologist'
                     document.getElementById('display-psychologist-id').textContent = userId + " (MOCK)";
                     showView('psychologist-dashboard-view');
+                    startPsychologistListener(); // Inicia o listener mock
                 }
+                console.warn(`[MOCK MODE] Simulação de registro de ${role} bem-sucedida.`);
                 return;
             }
 
             // --- LÓGICA REAL (FIREBASE) ---
             if (!userId || !db) {
-                console.error("Ação bloqueada: Firebase não inicializado ou usuário não logado. O mock mode falhou.");
+                console.error("Ação bloqueada: Firebase não inicializado ou usuário não logado.");
                 return;
             }
 
             let profileData = { role: role };
             
-            // Coleta dados do formulário (validação omitida por brevidade, mas deve existir)
             if (role === 'patient') {
                 const name = document.getElementById('patient-name').value.trim();
                 const birthday = document.getElementById('patient-birthday').value;
@@ -495,10 +520,21 @@
             }
 
             try {
+                // Salva o perfil na coleção principal do usuário
                 const profileDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profile', 'role');
                 await setDoc(profileDocRef, profileData);
                 
-                console.log(`Perfil de ${role} salvo com sucesso. Redirecionando...`);
+                // Além disso, salva uma cópia pública minimalista (apenas para listagem de pacientes)
+                // Usamos a coleção pública para que o psicólogo possa ver todos os usuários registrados
+                // Nota: A segurança deve ser configurada no Firebase para permitir esta leitura apenas para psicólogos.
+                const publicPatientDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'user_profiles', userId);
+                await setDoc(publicPatientDocRef, { 
+                    name: profileData.name || 'Usuário Sem Nome', 
+                    role: role, 
+                    // Outras informações de contato ou ID de psicólogo podem ser adicionadas aqui
+                    // Por simplicidade, estamos listando todos os pacientes.
+                }, { merge: true });
+
                 userRole = role; 
                 
                 // Redireciona para a view principal após o registro
@@ -509,6 +545,7 @@
                 } else {
                     document.getElementById('display-psychologist-id').textContent = userId;
                     showView('psychologist-dashboard-view');
+                    startPsychologistListener();
                 }
 
             } catch (e) {
@@ -520,20 +557,16 @@
         document.getElementById('patient-registration-form').addEventListener('submit', (e) => registerUser(e, 'patient'));
         document.getElementById('psychologist-registration-form').addEventListener('submit', (e) => registerUser(e, 'psychologist'));
 
-        // --- Lógica de Seleção de Humor ---
+        // --- Lógica de Seleção de Humor (Paciente) ---
         document.getElementById('mood-options').addEventListener('click', (e) => {
             const button = e.target.closest('.mood-selector-btn');
             if (!button) return;
 
-            // Remove a seleção de todos os botões
             document.querySelectorAll('.mood-selector-btn').forEach(btn => {
                 btn.classList.remove('selected');
             });
 
-            // Adiciona a seleção ao botão clicado
             button.classList.add('selected');
-
-            // Define o valor no campo hidden para submissão
             selectedMood = button.getAttribute('data-mood');
             document.getElementById('mood-level').value = selectedMood;
         });
@@ -549,32 +582,31 @@
             
             if (!moodLevelInput.value) {
                 console.error("Por favor, selecione seu nível de humor.");
-                // Em um app real, seria um modal ou feedback na tela
                 return;
             }
 
             if (isMockMode) {
+                // --- LÓGICA DE SIMULAÇÃO (MOCK) ---
                 console.warn(`[MOCK MODE] Registro de humor simulado (Nível: ${moodLevelInput.value}, Notas: "${moodNotes}")`);
                 
-                // Adiciona o novo registro simulado à lista
                 const newMood = {
                     id: crypto.randomUUID(),
                     level: parseInt(selectedMood, 10),
                     notes: moodNotes,
-                    // Use new Date() para mock mode
                     timestamp: new Date()
                 };
                 
-                // Recarrega todos os mocks (adicionando o novo)
+                // Adiciona o novo registro simulado à lista
                 let existingMocks = JSON.parse(localStorage.getItem('mockMoods') || '[]');
                 existingMocks.unshift(newMood); // Adiciona no início (mais recente)
                 localStorage.setItem('mockMoods', JSON.stringify(existingMocks));
 
-                renderMoodEntries(existingMocks);
+                renderMoodEntries(existingMocks, 'mood-list', 'no-mood-records'); // Renderiza na lista do paciente
 
                 // Limpa o formulário APÓS o sucesso simulado e renderização
                 document.getElementById('mood-diary-form').reset();
                 moodLevelInput.value = '';
+                selectedMood = null;
                 document.querySelectorAll('.mood-selector-btn').forEach(btn => btn.classList.remove('selected'));
 
                 return;
@@ -611,15 +643,15 @@
         document.getElementById('mood-diary-form').addEventListener('submit', saveMoodEntry);
 
 
-        // Listener de Real-Time para os Registros de Humor (Não usado em mock mode)
+        // Listener de Real-Time para os Registros de Humor (Paciente)
         function startMoodDiaryListener() {
             // Atualiza o título da lista para o modo real
             document.getElementById('list-title-suffix').textContent = '';
             
-            if (isMockMode || !userId || userRole !== 'patient' || !db) {
+            if (isMockMode) {
                  // Em mock mode, garante que qualquer registro simulado anterior seja exibido
                  document.getElementById('list-title-suffix').textContent = '(Simulado)';
-                 renderMoodEntries(JSON.parse(localStorage.getItem('mockMoods') || '[]'));
+                 renderMoodEntries(JSON.parse(localStorage.getItem('mockMoods') || '[]'), 'mood-list', 'no-mood-records');
                  return;
             }
 
@@ -637,73 +669,187 @@
                 });
 
                 moods.sort((a, b) => b.timestamp - a.timestamp);
-                renderMoodEntries(moods);
+                renderMoodEntries(moods, 'mood-list', 'no-mood-records');
             }, (error) => {
                 console.error("Erro ao escutar registros de humor:", error);
             });
         }
 
-        // Função para renderizar os registros
-        function renderMoodEntries(moods) {
-            const moodList = document.getElementById('mood-list');
-            const noRecordsEl = document.getElementById('no-mood-records'); 
+        // --- Funções do Dashboard do Psicólogo (NOVO) ---
+        
+        // Listener de Real-Time para a lista de Pacientes
+        function startPsychologistListener() {
+             if (isMockMode) {
+                // Carrega pacientes mock e renderiza a lista
+                mockPatients = JSON.parse(localStorage.getItem('mockPatients') || '[]').filter(p => p.role === 'patient');
+                renderPatientList(mockPatients);
+                // O dashboard precisa de um ID de paciente para ver os dados. Selecionamos o primeiro mock.
+                if (mockPatients.length > 0) {
+                     viewPatientMood(mockPatients[0].id, mockPatients[0].name);
+                }
+                return;
+            }
+
+            if (!db || userRole !== 'psychologist') return;
+
+            // Busca perfis públicos (apenas pacientes)
+            const publicProfilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'user_profiles');
+            
+            // ATENÇÃO: É necessário um índice composto no Firebase para esta query: 
+            // Collection: user_profiles, Field: role, Order: ASCENDING
+            // Caso o índice não exista, a leitura falhará no modo real.
+            const patientQuery = query(publicProfilesRef, where("role", "==", "patient"));
+
+            onSnapshot(patientQuery, (snapshot) => {
+                let patients = [];
+                snapshot.forEach(doc => {
+                    patients.push({
+                        id: doc.id,
+                        name: doc.data().name || 'Paciente Sem Nome',
+                    });
+                });
+                renderPatientList(patients);
+                // Se houver pacientes, visualiza o primeiro por padrão
+                if (patients.length > 0 && !selectedMockPatientId) {
+                    viewPatientMood(patients[0].id, patients[0].name);
+                }
+            }, (error) => {
+                console.error("Erro ao escutar a lista de pacientes:", error);
+            });
+        }
+        
+        // Renderiza a lista de pacientes no dashboard
+        function renderPatientList(patients) {
+            const patientListEl = document.getElementById('patient-list');
+            const noPatientsEl = document.getElementById('no-patients-found');
+
+            if (!patientListEl || !noPatientsEl) return;
+            
+            patientListEl.innerHTML = '';
+            
+            if (patients.length === 0) {
+                noPatientsEl.style.display = 'block';
+                return;
+            }
+
+            noPatientsEl.style.display = 'none';
+
+            patients.forEach(patient => {
+                const patientItem = document.createElement('div');
+                patientItem.className = `patient-item p-3 rounded-lg border-b border-gray-100`;
+                patientItem.id = `patient-item-${patient.id}`;
+                patientItem.innerHTML = `
+                    <div class="font-semibold text-gray-800">${patient.name}</div>
+                    <div class="text-xs text-gray-500 font-mono truncate">${patient.id}</div>
+                `;
+                patientItem.onclick = () => viewPatientMood(patient.id, patient.name);
+                patientListEl.appendChild(patientItem);
+            });
+        }
+
+        // NOVO: Busca e exibe o histórico de humor de um paciente
+        window.viewPatientMood = async function(patientId, patientName) {
+            selectedMockPatientId = patientId; // Define o paciente selecionado (para realçar na lista)
+
+            // Atualiza o realce na lista
+            document.querySelectorAll('.patient-item').forEach(el => el.classList.remove('selected'));
+            const selectedEl = document.getElementById(`patient-item-${patientId}`);
+            if (selectedEl) selectedEl.classList.add('selected');
+
+            // Esconde a mensagem inicial e mostra o header de detalhes
+            document.getElementById('select-patient-message').style.display = 'none';
+            document.getElementById('patient-mood-header').style.display = 'block';
+
+            // Atualiza o header
+            document.getElementById('selected-patient-name').textContent = patientName;
+            document.getElementById('selected-patient-id').textContent = patientId;
+            
+            if (isMockMode) {
+                 // Busca os registros de humor mock
+                 const mockMoods = JSON.parse(localStorage.getItem('mockMoods') || '[]');
+                 renderMoodEntries(mockMoods, 'patient-mood-history', 'no-mood-records-patient-view');
+                 return;
+            }
+
+            // --- LÓGICA REAL (FIREBASE) ---
+            const moodCollectionRef = collection(db, 'artifacts', appId, 'users', patientId, 'mood_entries');
+            
+            // Usamos onSnapshot para atualizações em tempo real
+            onSnapshot(moodCollectionRef, (snapshot) => {
+                let moods = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    moods.push({
+                        id: doc.id,
+                        ...data,
+                        timestamp: data.timestamp ? data.timestamp.toDate() : new Date(), 
+                    });
+                });
+
+                moods.sort((a, b) => b.timestamp - a.timestamp);
+                renderMoodEntries(moods, 'patient-mood-history', 'no-mood-records-patient-view');
+            }, (error) => {
+                console.error("Erro ao escutar o humor do paciente:", error);
+                document.getElementById('patient-mood-history').innerHTML = `<p class="text-red-500">Falha ao carregar dados.</p>`;
+            });
+        }
+        
+        // Função universal para renderizar registros de humor
+        function renderMoodEntries(moods, listContainerId, noRecordsId) {
+            const moodList = document.getElementById(listContainerId);
+            const noRecordsEl = document.getElementById(noRecordsId); 
 
             if (!moodList || !noRecordsEl) {
                 console.error("ERRO DE RENDERIZAÇÃO: Elementos de lista de humor não encontrados.");
                 return;
             }
             
-            moodList.innerHTML = ''; // Limpa a lista para re-renderizar
+            moodList.innerHTML = ''; 
 
-            // Se a lista estiver vazia, exibe o aviso 'Nenhum registro encontrado'
             if (moods.length === 0) {
                 noRecordsEl.style.display = 'block'; 
                 return;
             }
             
-            // Se houver itens, esconde o aviso
             noRecordsEl.style.display = 'none';
 
-            // Pega apenas os 10 mais recentes (Simulado ou Real)
-            const entriesToRender = isMockMode ? moods.slice(0, 10) : moods;
+            // Pega apenas os 10 mais recentes
+            const entriesToRender = moods.slice(0, 10);
             
+            const styleMap = {
+                1: { emoji: '😞', text: 'Terrível', color: 'bg-red-100 text-red-800', border: 'red' }, 
+                2: { emoji: '😔', text: 'Ruim', color: 'bg-orange-100 text-orange-800', border: 'orange' }, 
+                3: { emoji: '😐', text: 'Neutro', color: 'bg-gray-100 text-gray-800', border: 'gray' }, 
+                4: { emoji: '🙂', text: 'Bom', color: 'bg-blue-100 text-blue-800', border: 'blue' }, 
+                5: { emoji: '😊', text: 'Excelente', color: 'bg-green-100 text-green-800', border: 'green' }
+            };
 
             entriesToRender.forEach(mood => {
-                // Converte Firestore Timestamp ou Date para objeto Date
                 const entryDate = mood.timestamp instanceof Date ? mood.timestamp : new Date(mood.timestamp);
 
                 const dateString = entryDate.toLocaleDateString('pt-BR', {
                     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
                 });
                 
-                const styleMap = {
-                    1: { emoji: '😞', text: 'Terrível', color: 'bg-red-100 text-red-800' }, 
-                    2: { emoji: '😔', text: 'Ruim', color: 'bg-orange-100 text-orange-800' }, 
-                    3: { emoji: '😐', text: 'Neutro', color: 'bg-gray-100 text-gray-800' }, 
-                    4: { emoji: '🙂', text: 'Bom', color: 'bg-blue-100 text-blue-800' }, 
-                    5: { emoji: '😊', text: 'Excelente', color: 'bg-green-100 text-green-800' }
-                };
+                const { emoji, text, color, border } = styleMap[mood.level] || { emoji: '❓', text: 'Desconhecido', color: 'bg-gray-200 text-gray-600', border: 'gray' };
                 
-                const { emoji, text, color } = styleMap[mood.level] || { emoji: '❓', text: 'Desconhecido', color: 'bg-gray-200 text-gray-600' };
-                
-                // Pega a cor base para a borda (ex: red para bg-red-100)
-                const borderColor = color.split('-')[1]; 
 
                 const entryDiv = document.createElement('div');
-                entryDiv.className = `card p-4 flex justify-between items-center border-l-4 border-${borderColor}-500 ${color}`;
+                // Use a classe 'card' para manter a aparência consistente no dashboard
+                entryDiv.className = `card p-4 flex justify-between items-center border-l-4 border-${border}-500 ${color}`;
 
                 entryDiv.innerHTML = `
                     <div class="flex items-center">
-                        <span class="text-3xl mr-3">${emoji}</span>
+                        <span class="text-2xl mr-3">${emoji}</span>
                         <div>
-                            <span class="font-semibold text-lg flex items-center">${text}</span>
+                            <span class="font-semibold text-base flex items-center">${text}</span>
                             <p class="text-xs text-gray-500">${dateString}</p>
                         </div>
                     </div>
-                    <span class="text-sm text-gray-600 truncate max-w-xs ml-4">${mood.notes || 'Nenhuma nota.'}</span>
+                    <p class="text-sm text-gray-600 truncate max-w-xs ml-4 text-right">${mood.notes || 'Nenhuma nota.'}</p>
                 `;
                 
-                moodList.appendChild(entryDiv); // Adiciona no final para manter a ordem decrescente (mais recente em cima)
+                moodList.appendChild(entryDiv);
             });
         }
 
@@ -712,10 +858,9 @@
             if (isMockMode) {
                  console.warn("[MOCK MODE] Simulação de logout. Redirecionando para a seleção de perfil.");
                  userRole = null;
-                 // Limpa os dados simulados
                  localStorage.removeItem('mockMoods'); 
-                 // Limpa o estado da lista
-                 renderMoodEntries([]);
+                 localStorage.removeItem('mockPatients');
+                 renderMoodEntries([], 'mood-list', 'no-mood-records');
                  showView('role-selection-view');
                  return;
             }
