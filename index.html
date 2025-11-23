@@ -6,9 +6,9 @@
     <title>Psionline - Painel Admin</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js CDN (Necessário para o dashboard) -->
+    <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- Supabase Client Library (DEVE SER O PRIMEIRO SCRIPT JS) -->
+    <!-- Supabase Client Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Estilos customizados -->
     <style>
@@ -17,14 +17,11 @@
             backdrop-filter: blur(10px);
             background-color: rgba(255, 255, 255, 0.7);
         }
-        .font-sans {
-            font-family: 'Inter', sans-serif;
-        }
+        .font-sans { font-family: 'Inter', sans-serif; }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
     <div id="app">
-        <!-- Conteúdo inicial - Loader -->
         <div class="flex justify-center items-center h-screen bg-gray-50">
             <div class="flex items-center p-8 rounded-xl bg-white shadow-xl">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mr-4"></div>
@@ -33,13 +30,11 @@
         </div>
     </div>
 
-    <!-- Script de Inicialização -->
+    <!-- Script de inicialização -->
     <script type="module">
-        
-        // Variável para armazenar o módulo importado
+    (async () => {
         let appModule = null;
 
-        // 1. Carrega o app.js como um módulo
         try {
             appModule = await import('./app.js');
         } catch (e) {
@@ -53,27 +48,18 @@
                     </div>
                 </div>
             `;
-            // Não há 'return' neste bloco.
+            return;
         }
 
-        // Se o módulo não foi carregado, a variável appModule será null.
-        if (!appModule) {
-            console.log("Módulo não carregado. Interrompendo a inicialização.");
-            return; // Este return está DENTRO de uma função, mas a sintaxe 'await import' pode estar causando o problema.
-        }
-        
-        // 2. Extrai as funções essenciais
-        // Se appModule for null, isso irá lançar um TypeError, mas o SyntaxError será evitado.
         const { render, setCurrentPage, setCurrentSession, supabaseClient } = appModule;
-        
-        // 3. Verifica se o cliente Supabase está disponível
+
         if (!supabaseClient) {
             console.error("ERRO: Cliente Supabase não está disponível.");
             document.getElementById('app').innerHTML = `
                 <div class="flex justify-center items-center h-screen bg-red-100">
                     <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
                         <p class="font-bold text-xl mb-3">🚨 Configuração Inválida 🚨</p>
-                        <p class="text-base mb-4">O cliente do Supabase não foi inicializado corretamente no <code>app.js</code>.</p>
+                        <p class="text-base mb-4">O cliente do Supabase não foi inicializado corretamente.</p>
                     </div>
                 </div>
             `;
@@ -82,28 +68,16 @@
 
         console.log("✔ DOM Carregado. Iniciando monitoramento de autenticação...");
 
-        // 4. Inicia o monitoramento de autenticação do Supabase
         supabaseClient.auth.onAuthStateChange((event, session) => {
-            console.log(`Auth state mudou: Evento: ${event}, Sessão: ${session ? 'Ativa' : 'Nula'}`);
-            
-            setCurrentSession(session); 
-            
-            // Decisão de qual página renderizar
-            if (session) {
-                setCurrentPage('admin');
-            } else {
-                setCurrentPage('login');
-            }
-
-            // Renderização APÓS o estado de auth ser resolvido.
-            if (typeof render === 'function') {
-                console.log("Função render() encontrada. Iniciando renderização final.");
-                render(); 
-            } else {
-                console.error("ERRO CRÍTICO: função render() não está acessível no módulo app.js.");
-            }
+            setCurrentSession(session);
+            if (session) setCurrentPage('admin');
+            else setCurrentPage('login');
+            if (typeof render === 'function') render();
         });
 
+        // Renderização inicial
+        render();
+    })();
     </script>
 </body>
 </html>
