@@ -3,18 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro - PsicoConnect</title>
+    <title>Meu Diário de Humor - PsicoConnect</title>
     <!-- Carrega o Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #eef2ff; /* Cor de fundo suave */
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
+            background-color: #f0f4f8; /* Cor suave de fundo */
+        }
+        .mood-icon {
+            font-size: 2.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        input[type="radio"]:checked + .mood-label .mood-icon {
+            transform: scale(1.15);
+            box-shadow: 0 0 0 4px #4f46e5;
+            border-radius: 50%;
+        }
+        .mood-label:hover .mood-icon {
+            transform: scale(1.05);
         }
     </style>
 </head>
@@ -24,7 +32,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, collection, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, addDoc, onSnapshot, collection, query, orderBy, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // Variáveis Globais do Ambiente (Obrigatórias)
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -35,27 +43,26 @@
     
     let app, db, auth;
     let userId = null;
+    let isAuthReady = false;
 
     // Inicialização do Firebase
-    if (Object.keys(firebaseConfig).length > 0) {
-        try {
+    try {
+        if (Object.keys(firebaseConfig).length > 0) {
             app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
-            
+
             // Tenta autenticar
             async function authenticate() {
                 try {
                     if (initialAuthToken) {
                         await signInWithCustomToken(auth, initialAuthToken);
                     } else {
-                        // Se não houver token, faz o login anônimo para obter um userId.
-                        // Em um app real, aqui seria 'createUserWithEmailAndPassword'.
                         await signInAnonymously(auth);
                     }
                 } catch (error) {
                     console.error("Erro na autenticação:", error);
-                    showMessage('Erro na autenticação. Tente novamente.', 'error');
+                    showMessage('Erro na autenticação. Recarregue a página.', 'error');
                 }
             }
 
@@ -63,33 +70,34 @@
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     userId = user.uid;
-                    document.getElementById('session-info').textContent = `Sessão ativa: ${userId}`;
+                    document.getElementById('user-status').textContent = `ID do Paciente: ${userId}`;
+                    isAuthReady = true;
+                    // Inicia o carregamento das entradas após a autenticação
+                    loadMoodEntries();
                 } else {
                     userId = null;
-                    document.getElementById('session-info').textContent = 'Sessão não iniciada.';
+                    isAuthReady = true;
+                    document.getElementById('user-status').textContent = 'Usuário não autenticado. Favor fazer login.';
                 }
             });
 
             authenticate();
 
-        } catch (e) {
-            console.error("Erro ao inicializar o Firebase:", e);
-            showMessage('Erro: Falha ao iniciar o aplicativo.', 'error');
+        } else {
+            console.error("Configuração do Firebase vazia.");
+            showMessage('Erro: Firebase não configurado.', 'error');
         }
-    } else {
-        console.error("Configuração do Firebase vazia.");
-        showMessage('Erro: Firebase não configurado.', 'error');
+    } catch (e) {
+        console.error("Erro fatal ao inicializar o Firebase:", e);
+        showMessage('Erro: Falha ao iniciar o aplicativo.', 'error');
     }
 
-    // --- FUNÇÕES DE LÓGICA DE CADASTRO ---
+    // --- FUNÇÕES DE UTILITY ---
 
-    /**
-     * Função para exibir mensagens na caixa de status/erro.
-     */
     function showMessage(message, type = 'info') {
         const box = document.getElementById('notification-box');
         box.textContent = message;
-        box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm transition-opacity duration-300';
+        box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm transition-opacity duration-300 z-50';
         
         if (type === 'error') {
             box.classList.add('bg-red-500', 'text-white');
@@ -102,147 +110,245 @@
         box.classList.remove('hidden');
         setTimeout(() => {
             box.classList.add('hidden');
-        }, 6000);
+        }, 5000);
     }
 
-    /**
-     * Função principal de processamento do formulário de cadastro.
-     */
-    document.getElementById('register-form').addEventListener('submit', async (e) => {
+    function formatDate(timestamp) {
+        if (!timestamp) return 'Data Indisponível';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+        return date.toLocaleDateString('pt-BR', options);
+    }
+    
+    // --- FUNÇÃO DE SALVAR DADOS ---
+
+    document.getElementById('mood-form').addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        if (!userId) {
-            showMessage("Aguarde a inicialização da sessão ou tente recarregar a página.", 'error');
+        if (!isAuthReady || !userId) {
+            showMessage("Aguarde o carregamento do usuário...", 'error');
             return;
         }
 
-        const name = document.getElementById('user-name').value.trim();
-        const email = document.getElementById('user-email').value.trim();
-        const role = document.querySelector('input[name="user-role"]:checked')?.value;
-        const btn = document.getElementById('register-btn');
+        const mood = document.querySelector('input[name="mood-rating"]:checked')?.value;
+        const notes = document.getElementById('mood-notes').value.trim();
+        const btn = document.getElementById('save-btn');
 
-        if (!name || !email || !role) {
-            showMessage("Preencha todos os campos e selecione seu perfil.", 'error');
+        if (!mood) {
+            showMessage("Selecione seu humor para continuar.", 'error');
             return;
         }
         
-        // Simulação de validação de e-mail/senha (não usada para auth real aqui, mas bom para a estrutura)
-        // ...
-
-        btn.textContent = 'Registrando...';
+        btn.textContent = 'Salvando...';
         btn.disabled = true;
 
         try {
-            // 1. Salvar o perfil (role) na coleção de usuários pública
-            // /artifacts/{appId}/public/data/users/{userId}
-            const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', userId);
+            // Caminho da coleção privada do paciente: /artifacts/{appId}/users/{userId}/mood_entries
+            const moodCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_entries');
             
-            const userData = {
-                name: name,
-                email: email,
-                role: role, // 'psychologist' ou 'patient'
-                createdAt: Date.now(),
-                isSetupComplete: true,
-                // Em um app real, o ID do psicólogo seria adicionado ao perfil do paciente aqui.
+            const moodData = {
+                mood: parseInt(mood),
+                notes: notes || 'Nenhuma nota adicionada.',
+                timestamp: serverTimestamp(),
             };
 
-            await setDoc(userDocRef, userData);
+            await addDoc(moodCollectionRef, moodData);
 
-            showMessage(`Cadastro de ${name} como ${role === 'psychologist' ? 'Psicólogo(a)' : 'Paciente'} concluído!`, 'success');
+            showMessage('Humor registrado com sucesso!', 'success');
             
-            // 2. Redirecionamento (Simulado)
-            setTimeout(() => {
-                if (role === 'psychologist') {
-                    // Simula ir para o dashboard do psicólogo
-                    document.getElementById('redirect-message').innerHTML = '<p class="text-xl font-bold text-indigo-700 mt-4">Redirecionando para o Dashboard do Psicólogo...</p>';
-                    // Na vida real, você faria window.location.href = 'dashboard_psicologo.html';
-                    console.log("Simulando redirecionamento para o dashboard do Psicólogo.");
-                } else {
-                    // Simula ir para o dashboard do paciente
-                    document.getElementById('redirect-message').innerHTML = '<p class="text-xl font-bold text-indigo-700 mt-4">Redirecionando para o Dashboard do Paciente...</p>';
-                    // Na vida real, você faria window.location.href = 'dashboard_paciente.html';
-                    console.log("Simulando redirecionamento para o dashboard do Paciente.");
-                }
-            }, 1000);
+            // Limpa o formulário após o envio
+            document.getElementById('mood-notes').value = '';
+            document.querySelector('input[name="mood-rating"]:checked').checked = false;
 
 
         } catch (error) {
-            console.error("Erro ao registrar perfil:", error);
-            showMessage(`Falha no cadastro: ${error.message}`, 'error');
+            console.error("Erro ao salvar entrada de humor:", error);
+            showMessage(`Falha ao salvar: ${error.message}`, 'error');
         } finally {
-            btn.textContent = 'Criar Minha Conta';
+            btn.textContent = 'Registrar Humor';
             btn.disabled = false;
         }
     });
 
+    // --- FUNÇÃO DE CARREGAR DADOS (Real-time) ---
+
+    function loadMoodEntries() {
+        if (!isAuthReady || !userId || !db) return;
+
+        // Caminho da coleção privada
+        const moodCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_entries');
+        
+        // Consulta: Ordena por timestamp (mais recente primeiro)
+        // OBS: Evitamos .orderBy() no Canvas para evitar erros de índice, então buscaremos e ordenaremos em JS.
+        const q = query(moodCollectionRef);
+
+        const moodList = document.getElementById('mood-entries-list');
+        const loadingMessage = document.getElementById('loading-entries');
+        
+        loadingMessage.classList.remove('hidden');
+
+        // onSnapshot para atualizações em tempo real
+        onSnapshot(q, (snapshot) => {
+            let entries = [];
+            snapshot.forEach(doc => {
+                // Captura os dados e o ID do documento
+                const data = doc.data();
+                entries.push({ id: doc.id, ...data });
+            });
+            
+            // Ordena localmente por timestamp (mais recente primeiro)
+            entries.sort((a, b) => {
+                // Checa se os timestamps são do Firebase (com .toMillis()) ou Date.now()
+                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
+                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
+                return timeB - timeA;
+            });
+
+
+            renderMoodEntries(entries);
+            loadingMessage.classList.add('hidden');
+        }, (error) => {
+            console.error("Erro ao ouvir entradas de humor:", error);
+            showMessage('Erro ao carregar o histórico.', 'error');
+            loadingMessage.classList.add('hidden');
+        });
+    }
+
+    /**
+     * Renderiza a lista de entradas de humor no HTML.
+     * @param {Array} entries - Lista de objetos de entrada de humor.
+     */
+    function renderMoodEntries(entries) {
+        const moodList = document.getElementById('mood-entries-list');
+        moodList.innerHTML = ''; // Limpa a lista atual
+
+        if (entries.length === 0) {
+            moodList.innerHTML = '<p class="text-gray-500 text-center py-8">Você ainda não registrou nenhum humor. Comece agora!</p>';
+            return;
+        }
+        
+        // Mapeamento de Humor para Emoji/Cor
+        const moodMap = {
+            1: { emoji: '😭', color: 'text-red-600', text: 'Terrível' },
+            2: { emoji: '😔', color: 'text-yellow-600', text: 'Ruim' },
+            3: { emoji: '😐', color: 'text-gray-600', text: 'Neutro' },
+            4: { emoji: '😊', color: 'text-green-600', text: 'Bom' },
+            5: { emoji: '🤩', color: 'text-blue-600', text: 'Excelente' },
+        };
+
+
+        entries.forEach(entry => {
+            const mood = moodMap[entry.mood] || { emoji: '❓', color: 'text-gray-400', text: 'Desconhecido' };
+            const dateStr = formatDate(entry.timestamp);
+
+            const entryElement = document.createElement('div');
+            entryElement.className = 'bg-white p-5 rounded-xl shadow-md border-l-4 border-indigo-500 mb-4 transition duration-200 hover:shadow-lg';
+            entryElement.innerHTML = `
+                <div class="flex justify-between items-center border-b pb-2 mb-3">
+                    <span class="text-3xl">${mood.emoji}</span>
+                    <span class="text-sm font-semibold ${mood.color}">${mood.text}</span>
+                </div>
+                <p class="text-sm text-gray-500 mb-3">${dateStr}</p>
+                <div class="p-3 bg-gray-50 rounded-lg text-gray-700 whitespace-pre-wrap">
+                    ${entry.notes || 'Sem notas.'}
+                </div>
+            `;
+            moodList.appendChild(entryElement);
+        });
+    }
+
 </script>
 
-<!-- Container Principal do Cadastro -->
-<div class="w-full max-w-md bg-white p-8 sm:p-10 rounded-2xl shadow-2xl border border-gray-100">
-    <div class="text-center mb-8">
-        <h1 class="text-3xl font-extrabold text-indigo-700">Psico<span class="text-gray-900">Connect</span></h1>
-        <p class="text-gray-600 mt-2">Crie sua conta e comece sua jornada.</p>
-    </div>
-
-    <form id="register-form">
-        <!-- Nome Completo -->
-        <div class="mb-5">
-            <label for="user-name" class="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
-            <input type="text" id="user-name" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="Seu nome">
-        </div>
-
-        <!-- E-mail -->
-        <div class="mb-5">
-            <label for="user-email" class="block text-sm font-medium text-gray-700 mb-2">E-mail</label>
-            <input type="email" id="user-email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="seu@email.com">
-        </div>
-
-        <!-- Senha (Simulada, necessária para a UX) -->
-        <div class="mb-6">
-            <label for="user-password" class="block text-sm font-medium text-gray-700 mb-2">Senha</label>
-            <input type="password" id="user-password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="********">
-        </div>
-
-        <!-- Seleção de Perfil (Role) -->
-        <div class="mb-8">
-            <p class="text-sm font-medium text-gray-700 mb-3">Qual é o seu perfil?</p>
-            <div class="flex space-x-4">
-                
-                <!-- Opção Psicólogo -->
-                <label class="flex-1 cursor-pointer">
-                    <input type="radio" name="user-role" value="psychologist" required class="hidden peer">
-                    <div class="p-4 border-2 border-gray-300 rounded-xl peer-checked:border-indigo-600 peer-checked:bg-indigo-50 transition duration-200 hover:shadow-md text-center">
-                        <svg class="w-6 h-6 mx-auto text-indigo-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 2.21-2.91 4-6.5 4S-1 13.21-1 11c0-2.21 2.91-4 6.5-4s6.5 1.79 6.5 4zm0 0c0 2.21 2.91 4 6.5 4s6.5-1.79 6.5-4s-2.91-4-6.5-4s-6.5 1.79-6.5 4zM12 4v4m0 8v4m-4-4h8"></path></svg>
-                        <span class="text-sm font-semibold text-gray-800">Psicólogo(a)</span>
-                    </div>
-                </label>
-
-                <!-- Opção Paciente -->
-                <label class="flex-1 cursor-pointer">
-                    <input type="radio" name="user-role" value="patient" class="hidden peer">
-                    <div class="p-4 border-2 border-gray-300 rounded-xl peer-checked:border-indigo-600 peer-checked:bg-indigo-50 transition duration-200 hover:shadow-md text-center">
-                        <svg class="w-6 h-6 mx-auto text-indigo-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zm-7 7v2m2-4v4m2-4v4m0 0h-4M7 16a2 2 0 00-2 2v2h14v-2a2 2 0 00-2-2H7z"></path></svg>
-                        <span class="text-sm font-semibold text-gray-800">Paciente</span>
-                    </div>
-                </label>
+<!-- Layout Principal -->
+<div class="min-h-screen flex justify-center">
+    <div class="w-full max-w-4xl p-6 md:p-10">
+        <!-- Cabeçalho -->
+        <header class="mb-8 border-b pb-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-extrabold text-indigo-700">Meu Diário de Humor</h1>
+                <p class="text-gray-600">Registre como você se sente hoje.</p>
             </div>
-        </div>
+            <!-- Status do Usuário (Debug/Info) -->
+            <div id="user-status" class="text-xs text-gray-500 bg-gray-100 p-2 rounded-lg">Carregando...</div>
+        </header>
 
-        <!-- Botão de Cadastro -->
-        <button type="submit" id="register-btn" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300 shadow-lg shadow-indigo-500/50">
-            Criar Minha Conta
-        </button>
-    </form>
+        <!-- Seção de Novo Registro -->
+        <section class="bg-white p-6 rounded-2xl shadow-xl mb-10">
+            <h2 class="text-xl font-bold text-gray-800 mb-6 border-b pb-3">Como você se sente?</h2>
+            
+            <form id="mood-form">
+                <!-- Seleção de Humor -->
+                <div class="flex justify-around items-center space-x-2 mb-8 p-4 bg-indigo-50 rounded-lg">
+                    
+                    <!-- 1: Terrível -->
+                    <label class="flex flex-col items-center cursor-pointer mood-label p-2">
+                        <input type="radio" name="mood-rating" value="1" required class="hidden">
+                        <span class="mood-icon">😭</span>
+                        <span class="text-xs mt-1 text-red-600 font-medium">Terrível</span>
+                    </label>
 
-    <div id="redirect-message" class="text-center mt-6">
-        <p class="text-sm text-gray-500">Já tem uma conta? <a href="#" class="text-indigo-600 hover:underline font-medium">Entrar</a></p>
+                    <!-- 2: Ruim -->
+                    <label class="flex flex-col items-center cursor-pointer mood-label p-2">
+                        <input type="radio" name="mood-rating" value="2" class="hidden">
+                        <span class="mood-icon">😔</span>
+                        <span class="text-xs mt-1 text-yellow-600 font-medium">Ruim</span>
+                    </label>
+                    
+                    <!-- 3: Neutro -->
+                    <label class="flex flex-col items-center cursor-pointer mood-label p-2">
+                        <input type="radio" name="mood-rating" value="3" class="hidden">
+                        <span class="mood-icon">😐</span>
+                        <span class="text-xs mt-1 text-gray-600 font-medium">Neutro</span>
+                    </label>
+                    
+                    <!-- 4: Bom -->
+                    <label class="flex flex-col items-center cursor-pointer mood-label p-2">
+                        <input type="radio" name="mood-rating" value="4" class="hidden">
+                        <span class="mood-icon">😊</span>
+                        <span class="text-xs mt-1 text-green-600 font-medium">Bom</span>
+                    </label>
+
+                    <!-- 5: Excelente -->
+                    <label class="flex flex-col items-center cursor-pointer mood-label p-2">
+                        <input type="radio" name="mood-rating" value="5" class="hidden">
+                        <span class="mood-icon">🤩</span>
+                        <span class="text-xs mt-1 text-blue-600 font-medium">Excelente</span>
+                    </label>
+                </div>
+
+                <!-- Campo de Notas -->
+                <div class="mb-6">
+                    <label for="mood-notes" class="block text-sm font-medium text-gray-700 mb-2">Notas (Opcional)</label>
+                    <textarea id="mood-notes" rows="4" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="Descreva brevemente o que aconteceu hoje ou o que está sentindo."></textarea>
+                </div>
+
+                <!-- Botão de Envio -->
+                <button type="submit" id="save-btn" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300 shadow-lg shadow-indigo-500/50">
+                    Registrar Humor
+                </button>
+            </form>
+        </section>
+
+        <!-- Seção de Histórico -->
+        <section>
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Meu Histórico</h2>
+            
+            <!-- Mensagem de Carregamento -->
+            <div id="loading-entries" class="text-center py-8">
+                <div class="animate-pulse text-gray-500">Carregando entradas anteriores...</div>
+            </div>
+
+            <!-- Lista de Entradas de Humor -->
+            <div id="mood-entries-list" class="space-y-4">
+                <!-- Entradas serão injetadas aqui -->
+            </div>
+        </section>
+
     </div>
 </div>
 
 <!-- Notificação de Status (Toast) -->
 <div id="notification-box" class="hidden"></div>
-<!-- Informação de Sessão (Debug) -->
-<div id="session-info" class="absolute bottom-2 left-2 text-xs text-gray-400">Sessão não iniciada.</div>
 
 </body>
 </html>
