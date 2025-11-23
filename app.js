@@ -1,4 +1,4 @@
-/* app.js - Versão Final Ajustada para Index HTML */
+/* app.js - Versão Teste Completa */
 
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
@@ -11,18 +11,13 @@ let currentAuthSession = null;
 let currentAdminTab = "dashboard";
 
 /* -------------------------
-   Funções de Sessão e Página
+   Sessão e Página
 ------------------------- */
-function setCurrentPage(newPage) {
-    currentPage = newPage;
-}
-
-function setCurrentSession(session) {
-    currentAuthSession = session;
-}
+function setCurrentPage(newPage) { currentPage = newPage; }
+function setCurrentSession(session) { currentAuthSession = session; }
 
 /* -------------------------
-   Login e Logout
+   Login / Logout
 ------------------------- */
 async function handleLogin(email, password) {
     try {
@@ -43,13 +38,11 @@ async function handleLogout() {
         if(error) throw error;
         setCurrentPage('login');
         render();
-    } catch(err) {
-        console.error("Erro de logout:", err.message);
-    }
+    } catch(err) { console.error("Erro de logout:", err.message); }
 }
 
 /* -------------------------
-   Renderização Admin
+   Render Admin Tabs
 ------------------------- */
 function changeAdminTab(tab) {
     currentAdminTab = tab;
@@ -66,7 +59,28 @@ function renderAdminContent() {
 }
 
 /* -------------------------
-   Views Login e Admin
+   Dashboard e Users - Mock
+------------------------- */
+async function renderDashboard() {
+    const main = document.getElementById('admin-content');
+    if(!main) return;
+    main.innerHTML = `
+        <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
+        <p class="text-gray-500">Aqui estarão os cards e gráficos do painel.</p>
+    `;
+}
+
+async function renderUsersContent() {
+    const main = document.getElementById('admin-content');
+    if(!main) return;
+    main.innerHTML = `
+        <h2 class="text-3xl font-bold text-gray-800 mb-6">Gerenciamento de Usuários</h2>
+        <p class="text-gray-500">Aqui estará a lista de usuários cadastrados.</p>
+    `;
+}
+
+/* -------------------------
+   Views HTML
 ------------------------- */
 function renderLogin() {
     return `
@@ -115,7 +129,7 @@ function renderAdminShell() {
 }
 
 /* -------------------------
-   Render principal
+   Render Principal
 ------------------------- */
 function render() {
     const app = document.getElementById('app');
@@ -129,7 +143,7 @@ function render() {
 }
 
 /* -------------------------
-   Listeners globais
+   Listeners Globais
 ------------------------- */
 document.addEventListener('submit', async (e) => {
     if(e.target && e.target.id === 'login-form') {
@@ -150,7 +164,7 @@ document.addEventListener('submit', async (e) => {
 });
 
 /* -------------------------
-   Exposição global
+   Exposição Global
 ------------------------- */
 window.appModule = {
     render,
