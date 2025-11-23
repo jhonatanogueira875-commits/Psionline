@@ -1,890 +1,612 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Diário de Saúde Mental - Cadastro e Acompanhamento</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-        .view { display: none; }
-        .card { background-color: white; border-radius: 1rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
-        .btn-primary { background-color: #4c51bf; color: white; transition: background-color 0.3s; }
-        .btn-primary:hover { background-color: #667eea; }
-        .btn-secondary { background-color: #e5e7eb; color: #1f2937; transition: background-color 0.3s; }
-        .btn-secondary:hover { background-color: #d1d5db; }
-        .btn-mock { background-color: #4ade80; color: #10171d; transition: background-color 0.3s; }
-        .btn-mock:hover { background-color: #34d399; }
-        .input-field { border: 1px solid #d1d5db; padding: 0.75rem; border-radius: 0.5rem; width: 100%; transition: border-color 0.3s; }
-        .input-field:focus { border-color: #4c51bf; outline: none; box-shadow: 0 0 0 3px rgba(76, 81, 191, 0.3); }
-        /* CRÍTICO: Garante que a tela de carregamento cubra tudo */
-        .loading-container { min-height: 80vh; display: flex; align-items: center; justify-content: center; }
-        .mood-selector-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 1rem;
-            border-radius: 0.75rem;
-            border: 2px solid transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            background-color: #f0f4ff; /* Light indigo background */
-        }
-        .mood-selector-btn:hover {
-            background-color: #e0e7ff;
-        }
-        .mood-selector-btn.selected {
-            border-color: #4c51bf; /* Indigo 600 border */
-            box-shadow: 0 0 0 2px #c3dafe;
-            background-color: #fff;
-        }
-        .patient-item {
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .patient-item:hover {
-            background-color: #f3f4f6;
-        }
-        .patient-item.selected {
-            background-color: #e0e7ff;
-            font-weight: 600;
-            border-left: 4px solid #4c51bf;
-        }
-    </style>
-</head>
-<body>
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { 
+    getFirestore, 
+    collection, 
+    onSnapshot, 
+    addDoc, 
+    serverTimestamp, 
+    query, 
+    orderBy,
+    doc, 
+    updateDoc, 
+    deleteDoc 
+} from 'firebase/firestore';
+import { Calendar, Smile, Frown, Loader, ArrowLeft, Trash2, Edit, X, Check } from 'lucide-react';
 
-    <!-- Contêiner Principal de Carregamento -->
-    <div id="loading-view" class="loading-container fixed inset-0 z-50 bg-white">
-        <div class="flex flex-col items-center">
-            <svg class="animate-spin -ml-1 mr-3 h-10 w-10 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p class="mt-4 text-gray-700" id="loading-message">Carregando e verificando autenticação...</p>
-        </div>
-    </div>
+// --- CONFIGURAÇÃO FIREBASE E VARIÁVEIS GLOBAIS ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-    <!-- 1. Seleção de Perfil (Role Selection) -->
-    <div id="role-selection-view" class="view flex items-center justify-center min-h-screen p-4">
-        <div class="card w-full max-w-md p-8 text-center">
-            <!-- Mensagem de erro/aviso de simulação será inserida aqui se houver falha de config -->
-            <h1 class="text-3xl font-bold text-gray-800 mb-6">Diário de Saúde Mental</h1>
-            <p class="text-gray-600 mb-8">Por favor, selecione seu tipo de perfil para continuar.</p>
+// Inicializa o Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
 
-            <div class="space-y-4">
-                <button onclick="showView('registration-patient-view')" class="btn-primary w-full py-3 rounded-xl text-lg font-semibold shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Sou Paciente (Cadastre-se)
-                </button>
-                <button onclick="showView('registration-psychologist-view')" class="btn-primary w-full py-3 rounded-xl text-lg font-semibold shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Sou Psicólogo(a) (Cadastre-se)
-                </button>
+// Helper para funções de Áudio (mantidas da versão anterior)
+const base64ToArrayBuffer = (base64) => {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
+const pcmToWav = (pcm16, sampleRate = 16000) => {
+    const numChannels = 1;
+    const bytesPerSample = 2; 
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+
+    const buffer = new ArrayBuffer(44 + pcm16.byteLength);
+    const view = new DataView(buffer);
+    let offset = 0;
+
+    view.setUint32(offset, 0x52494646, false); offset += 4;
+    view.setUint32(offset, 36 + pcm16.byteLength, true); offset += 4;
+    view.setUint32(offset, 0x57415645, false); offset += 4;
+    view.setUint32(offset, 0x666d7420, false); offset += 4;
+    view.setUint32(offset, 16, true); offset += 4;
+    view.setUint16(offset, 1, true); offset += 2;
+    view.setUint16(offset, numChannels, true); offset += 2;
+    view.setUint32(offset, sampleRate, true); offset += 4;
+    view.setUint32(offset, byteRate, true); offset += 4;
+    view.setUint16(offset, blockAlign, true); offset += 2;
+    view.setUint16(offset, 16, true); offset += 2;
+    view.setUint32(offset, 0x64617461, false); offset += 4;
+    view.setUint32(offset, pcm16.byteLength, true); offset += 4;
+
+    const pcmData = new Uint8Array(pcm16.buffer);
+    for (let i = 0; i < pcm16.byteLength; i++) {
+        view.setUint8(offset + i, pcmData[i]);
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+};
+
+// Mapeamento de humor para voz e estilo de TTS
+const voiceMap = {
+    'Excelente': { voiceName: 'Puck', style: 'cheerfully' },
+    'Bom': { voiceName: 'Kore', style: 'calmly' },
+    'Neutro': { voiceName: 'Charon', style: 'in a matter-of-fact tone' },
+    'Ruim': { voiceName: 'Fenrir', style: 'in a slightly low tone' },
+    'Péssimo': { voiceName: 'Algenib', style: 'in a slow, somber tone' },
+};
+
+const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=";
+const API_KEY = ""; 
+
+// Componente de Ícone de Humor
+const MoodIcon = ({ mood, className = "w-6 h-6" }) => {
+    switch (mood) {
+        case 'Excelente': return <Smile className={`text-emerald-500 ${className}`} />;
+        case 'Bom': return <Smile className={`text-lime-500 ${className}`} />;
+        case 'Neutro': return <Smile className={`text-amber-500 ${className}`} />;
+        case 'Ruim': return <Frown className={`text-orange-500 ${className}`} />;
+        case 'Péssimo': return <Frown className={`text-red-600 ${className}`} />;
+        default: return <Smile className={`text-gray-400 ${className}`} />;
+    }
+};
+
+// Componente de Botão de Fala TTS
+const SpeakButton = ({ text, mood }) => {
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const API_KEY = ""; 
+
+    const speak = async () => {
+        setIsLoading(true);
+        setError(null);
+        const { voiceName, style } = voiceMap[mood] || voiceMap['Neutro'];
+        const promptText = `Say ${style}: "${text}"`;
+
+        const payload = {
+            contents: [{ parts: [{ text: promptText }] }],
+            generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } }
+                }
+            },
+            model: "gemini-2.5-flash-preview-tts"
+        };
+
+        try {
+            const response = await fetch(`${API_URL}${API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.json();
+                throw new Error(`TTS API failed: ${errorBody.error?.message || response.statusText}`);
+            }
+
+            const result = await response.json();
+            const part = result?.candidates?.[0]?.content?.parts?.[0];
+            const audioData = part?.inlineData?.data;
+            const mimeType = part?.inlineData?.mimeType;
+
+            if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                const rateMatch = mimeType.match(/rate=(\d+)/);
+                const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 16000;
+                const pcmData = base64ToArrayBuffer(audioData);
+                const pcm16 = new Int16Array(pcmData);
+                const wavBlob = pcmToWav(pcm16, sampleRate);
+                const audioUrl = URL.createObjectURL(wavBlob);
                 
-                <!-- BOTÕES DE LOGIN RÁPIDO (MOCK) -->
-                <div id="mock-login-buttons" class="mt-6 pt-4 border-t border-dashed" style="display: none;">
-                     <p class="text-sm text-red-500 mb-4 font-semibold">
-                        Modo de Simulação: Acesso Rápido
-                    </p>
-                    <button onclick="simulateLogin('patient')" class="btn-mock w-full py-2 rounded-xl text-md font-semibold focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
-                        Login Rápido (Paciente)
-                    </button>
-                    <button onclick="simulateLogin('psychologist')" class="btn-mock w-full py-2 mt-2 rounded-xl text-md font-semibold focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
-                        Login Rápido (Psicólogo)
-                    </button>
-                </div>
+                const audio = new Audio(audioUrl);
+                audio.play();
+
+                audio.onended = () => { URL.revokeObjectURL(audioUrl); };
+            } else {
+                throw new Error("Resposta de áudio inválida ou incompleta.");
+            }
+
+        } catch (err) {
+            console.error("Erro ao gerar ou reproduzir áudio:", err);
+            setError("Falha ao gerar áudio.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col items-center">
+            {error && <span className="text-red-500 text-xs mt-1">{error}</span>}
+            <button
+                onClick={speak}
+                disabled={isLoading}
+                className={`mt-1 px-3 py-1 text-xs font-medium rounded-full transition duration-150 ${
+                    isLoading 
+                    ? 'bg-blue-300 text-white cursor-not-allowed' 
+                    : 'bg-blue-500 hover:bg-blue-600 text-white shadow-md'
+                }`}
+            >
+                {isLoading ? <Loader className="w-4 h-4 animate-spin inline-block" /> : 'Ouvir Nota'}
+            </button>
+        </div>
+    );
+};
+
+// Componente Modal de Edição (Mantido)
+const EditModal = ({ record, userId, appId, onSave, onClose, db, moods, MoodIcon }) => {
+    const [editingMood, setEditingMood] = useState(record.mood);
+    const [editingNote, setEditingNote] = useState(record.note);
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState(null);
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (editingNote.trim() === '') {
+            setError("A nota não pode estar vazia.");
+            return;
+        }
+
+        setIsSaving(true);
+        setError(null);
+
+        try {
+            const recordRef = doc(db, 'artifacts', appId, 'users', userId, 'mood_records', record.id);
+            await updateDoc(recordRef, {
+                mood: editingMood,
+                note: editingNote.trim(),
+            });
+            onSave(); 
+        } catch (err) {
+            console.error("Erro ao salvar edição:", err);
+            setError(`Falha ao salvar. ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative">
+                <button 
+                    onClick={onClose} 
+                    className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 transition"
+                    title="Fechar Edição"
+                >
+                    <X className="w-6 h-6" />
+                </button>
+
+                <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Editar Registro</h2>
+                
+                {error && (
+                    <div className="bg-red-100 text-red-700 p-2 rounded-lg mb-4 text-sm">{error}</div>
+                )}
+
+                <form onSubmit={handleSave}>
+                    {/* Seleção de Humor para Edição */}
+                    <label className="block text-gray-700 font-medium mb-2">Selecione o Humor:</label>
+                    <div className="flex flex-wrap gap-2 mb-4 justify-start">
+                        {moods.map((mood) => (
+                            <button
+                                key={mood}
+                                type="button"
+                                onClick={() => setEditingMood(mood)}
+                                className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition duration-200 shadow-sm ${
+                                    editingMood === mood 
+                                    ? 'bg-blue-600 text-white ring-2 ring-blue-300'
+                                    : 'bg-gray-200 text-gray-700 hover:bg-blue-100'
+                                }`}
+                            >
+                                <MoodIcon mood={mood} className="w-5 h-5" />
+                                <span className="ml-2">{mood}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Nota para Edição */}
+                    <label className="block text-gray-700 font-medium mb-2 mt-4">Nota:</label>
+                    <textarea
+                        value={editingNote}
+                        onChange={(e) => setEditingNote(e.target.value)}
+                        placeholder="Edite a sua nota..."
+                        rows="4"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 resize-none"
+                        required
+                    />
+
+                    <div className="flex justify-end mt-6 space-x-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="bg-gray-300 text-gray-800 font-medium py-2 px-6 rounded-xl hover:bg-gray-400 transition shadow-md"
+                            disabled={isSaving}
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="submit"
+                            className="bg-green-500 text-white font-bold py-2 px-6 rounded-xl hover:bg-green-600 transition shadow-lg disabled:opacity-50 flex items-center justify-center"
+                            disabled={isSaving}
+                        >
+                            {isSaving ? (
+                                <><Loader className="w-5 h-5 mr-2 animate-spin" /> Salvando...</>
+                            ) : 'Salvar Edição'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
-    </div>
+    );
+};
 
-    <!-- 2. Cadastro de Paciente -->
-    <div id="registration-patient-view" class="view flex items-center justify-center min-h-screen p-4">
-        <div class="card w-full max-w-md p-8">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">Cadastro de Paciente</h2>
-            <p class="text-sm text-red-500 mb-4 font-semibold" id="patient-mock-warning" style="display:none;">
-                AVISO: Modo de Simulação Ativo. O registro não será salvo no banco de dados.
-            </p>
-            <p class="text-sm text-gray-500 mb-4">ID do Usuário: <span id="current-user-id-patient" class="font-mono text-xs bg-gray-100 p-1 rounded">Carregando...</span></p>
-            <form id="patient-registration-form">
-                <div class="mb-4">
-                    <label for="patient-name" class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                    <input type="text" id="patient-name" class="input-field" required>
-                </div>
-                <div class="mb-6">
-                    <label for="patient-birthday" class="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
-                    <input type="date" id="patient-birthday" class="input-field" required>
-                </div>
-                <button type="submit" class="btn-primary w-full py-3 rounded-xl font-semibold">
-                    Registrar Paciente
-                </button>
-                <button type="button" onclick="showView('role-selection-view')" class="btn-secondary w-full py-2 mt-3 rounded-xl font-semibold">
-                    Voltar
-                </button>
-            </form>
-        </div>
-    </div>
 
-    <!-- 3. Cadastro de Psicólogo -->
-    <div id="registration-psychologist-view" class="view flex items-center justify-center min-h-screen p-4">
-        <div class="card w-full max-w-md p-8">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">Cadastro de Psicólogo(a)</h2>
-            <p class="text-sm text-red-500 mb-4 font-semibold" id="psychologist-mock-warning" style="display:none;">
-                AVISO: Modo de Simulação Ativo. O registro não será salvo no banco de dados.
-            </p>
-            <p class="text-sm text-gray-500 mb-4">ID do Usuário: <span id="current-user-id-psychologist" class="font-mono text-xs bg-gray-100 p-1 rounded">Carregando...</span></p>
-            <form id="psychologist-registration-form">
-                <div class="mb-4">
-                    <label for="psychologist-name" class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-                    <input type="text" id="psychologist-name" class="input-field" required>
-                </div>
-                <div class="mb-6">
-                    <label for="psychologist-crp" class="block text-sm font-medium text-gray-700 mb-1">Número do CRP</label>
-                    <input type="text" id="psychologist-crp" class="input-field" required>
-                </div>
-                <button type="submit" class="btn-primary w-full py-3 rounded-xl font-semibold">
-                    Registrar Psicólogo(a)
-                </button>
-                <button type="button" onclick="showView('role-selection-view')" class="btn-secondary w-full py-2 mt-3 rounded-xl font-semibold">
-                    Voltar
-                </button>
-            </form>
-        </div>
-    </div>
+// Componente principal
+const App = () => {
+    const [userId, setUserId] = useState(null);
+    const [moodRecords, setMoodRecords] = useState([]);
+    const [newMood, setNewMood] = useState('Bom');
+    const [newNote, setNewNote] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [errorMessage, setErrorMessage] = useState('');
+    
+    // Estados para edição e exclusão
+    const [editingRecord, setEditingRecord] = useState(null); 
+    const [deletingRecordId, setDeletingRecordId] = useState(null); // ID do registro pendente de exclusão
 
-    <!-- 4. Diário de Humor do Paciente (Patient Main View) -->
-    <div id="patient-diary-view" class="view min-h-screen p-4 sm:p-8">
-        <div class="max-w-4xl mx-auto py-8">
-            <header class="mb-8">
-                <h1 class="text-3xl font-extrabold text-indigo-700">Meu Diário de Humor</h1>
-                <p class="text-gray-500">Olá, Paciente! Registre seu estado emocional do dia.</p>
-                <!-- Aviso de simulação no diário -->
-                <p class="text-sm text-red-500 mt-2 font-semibold" id="patient-view-mock-warning" style="display:none;">
-                    AVISO: Modo de Simulação. O registro de humor não será salvo.
+    const moods = ['Excelente', 'Bom', 'Neutro', 'Ruim', 'Péssimo'];
+
+    const handleSignOut = async () => {
+        try {
+            setIsLoading(true); 
+            setUserId(null); 
+            setMoodRecords([]);
+            await signOut(auth);
+        } catch (error) {
+            console.error("Erro ao sair:", error);
+            setErrorMessage(`Erro ao sair: ${error.message}`);
+            setIsLoading(false); 
+        }
+    };
+
+    // --- FUNÇÕES DE EXCLUSÃO (NOVO FLUXO) ---
+
+    // 1. Inicia o processo de exclusão, configurando o ID do registro a ser excluído
+    const handleDeleteClick = (recordId) => {
+        setDeletingRecordId(recordId);
+    };
+
+    // 2. Cancela o processo de exclusão
+    const handleCancelDelete = () => {
+        setDeletingRecordId(null);
+    };
+
+    // 3. Executa a exclusão no Firebase
+    const handleConfirmDelete = async (recordId) => {
+        if (!userId) {
+            setErrorMessage("Erro: Usuário não autenticado para exclusão.");
+            return;
+        }
+
+        try {
+            const recordRef = doc(db, 'artifacts', appId, 'users', userId, 'mood_records', recordId);
+            await deleteDoc(recordRef);
+            setErrorMessage('');
+            setDeletingRecordId(null); // Limpa o estado após sucesso
+        } catch (error) {
+            console.error("Erro ao deletar registro:", error);
+            // Mensagem de erro aprimorada para ajudar a diagnosticar regras de segurança
+            setErrorMessage(`Falha ao deletar: ${error.message}. Isso pode ser um problema de permissão (Regras do Firestore).`);
+            setDeletingRecordId(null); 
+        }
+    };
+
+    // --- FUNÇÕES DE EDIÇÃO (MANTIDAS) ---
+
+    const handleStartEdit = (record) => {
+        setEditingRecord(record);
+    };
+
+    const handleCloseEdit = () => {
+        setEditingRecord(null);
+    };
+
+
+    // 1. Efeito para Autenticação e Configuração Inicial
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                setUserId(user.uid);
+            } else {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Erro na autenticação:", error);
+                    setErrorMessage(`Falha na autenticação: ${error.message}`);
+                    setUserId(crypto.randomUUID()); 
+                }
+            }
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    // 2. Efeito para OUVINTE DO FIRESTORE 
+    useEffect(() => {
+        if (!userId || isLoading) return;
+
+        const userMoodsRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_records');
+        const q = query(userMoodsRef, orderBy('createdAt', 'desc'));
+
+        console.log(`Escutando dados em: /artifacts/${appId}/users/${userId}/mood_records`);
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const records = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                date: doc.data().createdAt ? doc.data().createdAt.toDate() : new Date(),
+            }));
+            setMoodRecords(records);
+            setErrorMessage('');
+        }, (error) => {
+            console.error("Erro ao escutar registros de humor:", error);
+            setErrorMessage(`Erro de Permissão: ${error.message}. Verifique as regras de segurança do Firestore ou a autenticação.`);
+        });
+
+        return () => unsubscribe();
+    }, [userId, isLoading]); 
+
+    // Função para adicionar um novo registro
+    const addMoodRecord = async (e) => {
+        e.preventDefault();
+        if (!userId || newNote.trim() === '') {
+            setErrorMessage("Por favor, selecione um humor e adicione uma nota.");
+            return;
+        }
+        
+        const userMoodsRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_records');
+
+        try {
+            await addDoc(userMoodsRef, {
+                mood: newMood,
+                note: newNote.trim(),
+                createdAt: serverTimestamp(),
+            });
+            setNewNote('');
+            setErrorMessage('');
+        } catch (error) {
+            console.error("Erro ao adicionar registro:", error);
+            setErrorMessage(`Erro ao salvar: ${error.message}`);
+        }
+    };
+
+    const formatDate = (date) => {
+        return date.toLocaleDateString('pt-BR', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
+    if (isLoading) {
+        return (
+            <div className="flex justify-center items-center h-screen bg-gray-50">
+                <Loader className="w-8 h-8 animate-spin text-blue-500" />
+                <span className="ml-2 text-gray-700">Carregando autenticação...</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-gray-100 p-4 sm:p-8 font-sans">
+            <header className="mb-8 text-center relative">
+                <h1 className="text-3xl font-bold text-gray-800 flex items-center justify-center">
+                    <Calendar className="w-7 h-7 mr-3 text-blue-500" />
+                    Rastreador de Humor
+                </h1>
+                <p className="text-sm text-gray-600 mt-2">
+                    Seu ID de Usuário: <code className="bg-white p-1 rounded font-mono text-xs">{userId || 'Não Autenticado'}</code>
                 </p>
-                <p class="text-xs text-gray-400 mt-2">Seu ID: <span id="display-patient-id" class="font-mono"></span></p>
-            </header>
-            
-            <div class="card p-6 mb-8">
-                <h3 class="text-xl font-semibold mb-4">Novo Registro</h3>
-                <form id="mood-diary-form">
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Como você se sente?</label>
-                        <div id="mood-options" class="grid grid-cols-5 gap-4">
-                            <!-- Botões de Humor -->
-                            <button type="button" class="mood-selector-btn" data-mood="1">
-                                <span class="text-3xl">😞</span> <span class="text-sm mt-1">Terrível</span>
-                            </button>
-                            <button type="button" class="mood-selector-btn" data-mood="2">
-                                <span class="text-3xl">😔</span> <span class="text-sm mt-1">Ruim</span>
-                            </button>
-                            <button type="button" class="mood-selector-btn" data-mood="3">
-                                <span class="text-3xl">😐</span> <span class="text-sm mt-1">Neutro</span>
-                            </button>
-                            <button type="button" class="mood-selector-btn" data-mood="4">
-                                <span class="text-3xl">🙂</span> <span class="text-sm mt-1">Bom</span>
-                            </button>
-                            <button type="button" class="mood-selector-btn" data-mood="5">
-                                <span class="text-3xl">😊</span> <span class="text-sm mt-1">Excelente</span>
-                            </button>
-                        </div>
-                        <input type="hidden" id="mood-level" required>
-                    </div>
-                    
-                    <div class="mb-6">
-                        <label for="mood-notes" class="block text-sm font-medium text-gray-700 mb-2">Notas/Pensamentos (Opcional)</label>
-                        <textarea id="mood-notes" rows="3" class="input-field" placeholder="Descreva brevemente o que aconteceu hoje ou o que está sentindo."></textarea>
-                    </div>
-                    <button type="submit" class="btn-primary w-full py-3 rounded-xl font-semibold">
-                        Registrar Humor
+                {/* Botão de Sair */}
+                {userId && (
+                    <button
+                        onClick={handleSignOut}
+                        className="absolute top-0 right-0 bg-red-500 text-white font-medium py-1 px-3 rounded-lg hover:bg-red-600 transition duration-150 text-sm flex items-center shadow-md"
+                        title="Sair da Sessão"
+                    >
+                        <ArrowLeft className="w-4 h-4 mr-1" /> Sair
                     </button>
+                )}
+            </header>
+
+            {errorMessage && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 shadow-md" role="alert">
+                    <p className="font-bold">Erro de Aplicação</p>
+                    <p className="text-sm">{errorMessage}</p>
+                    {errorMessage.includes("Regras do Firestore") && (
+                        <p className="text-xs mt-1">Se o problema persistir, verifique se a regra `allow delete` está configurada para o seu usuário.</p>
+                    )}
+                </div>
+            )}
+
+            {/* Formulário de Novo Registro (Mantido) */}
+            <div className="bg-white p-6 rounded-xl shadow-2xl mb-8 border-t-4 border-blue-500">
+                <h2 className="text-xl font-semibold text-gray-700 mb-4">Como você está se sentindo?</h2>
+                <form onSubmit={addMoodRecord}>
+                    {/* Seleção de Humor */}
+                    <div className="flex flex-wrap gap-2 mb-4 justify-center sm:justify-start">
+                        {moods.map((mood) => (
+                            <button
+                                key={mood}
+                                type="button"
+                                onClick={() => setNewMood(mood)}
+                                className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition duration-200 shadow-md ${
+                                    newMood === mood 
+                                    ? 'bg-blue-600 text-white ring-2 ring-blue-300 transform scale-105'
+                                    : 'bg-gray-200 text-gray-700 hover:bg-blue-100'
+                                }`}
+                                disabled={!userId}
+                            >
+                                <MoodIcon mood={mood} />
+                                <span className="ml-2">{mood}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Nota/Detalhe */}
+                    <textarea
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        placeholder={`Escreva uma nota sobre o seu humor (${newMood.toLowerCase()})...`}
+                        rows="3"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 resize-none"
+                        required
+                        disabled={!userId}
+                    />
+
+                    <div className="flex justify-end mt-4">
+                        <button
+                            type="submit"
+                            className="bg-blue-500 text-white font-bold py-2 px-6 rounded-xl hover:bg-blue-600 transition duration-150 shadow-lg disabled:opacity-50"
+                            disabled={!userId || newNote.trim() === ''}
+                        >
+                            Salvar Registro
+                        </button>
+                    </div>
                 </form>
             </div>
 
-            <!-- Lista de Registros -->
-            <h3 class="text-xl font-semibold text-gray-800 mb-4">
-                Meus Últimos Registros <span id="list-title-suffix" class="text-base text-gray-500 font-normal ml-2"></span>
-            </h3>
-            
-            <p class="text-gray-500 card p-4 italic text-sm text-center" id="no-mood-records" style="display: none;">
-                Nenhum registro encontrado. Comece a registrar seu humor!
-            </p>
-
-            <div id="mood-list" class="space-y-4">
-                <!-- Registros serão inseridos aqui pelo JS -->
-            </div>
-            
-            <button onclick="signOutUser()" class="btn-secondary mt-8 py-2 px-4 rounded-lg font-semibold">Sair</button>
-        </div>
-    </div>
-
-    <!-- 5. Dashboard do Psicólogo (Psychologist Main View) -->
-    <div id="psychologist-dashboard-view" class="view min-h-screen p-4 sm:p-8">
-        <div class="max-w-6xl mx-auto py-8">
-            <header class="mb-8">
-                <h1 class="text-3xl font-extrabold text-green-700">Dashboard do Psicólogo(a)</h1>
-                <p class="text-gray-500">Olá, Psicólogo(a)! Gerencie e acompanhe seus pacientes.</p>
-                <p class="text-sm text-red-500 mt-2 font-semibold" id="psychologist-view-mock-warning" style="display:none;">
-                    AVISO: Modo de Simulação. A lista de pacientes e dados são simulados.
-                </p>
-                <p class="text-xs text-gray-400 mt-2">Seu ID: <span id="display-psychologist-id" class="font-mono"></span></p>
-            </header>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <!-- COLUNA 1: Lista de Pacientes -->
-                <div class="lg:col-span-1">
-                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Pacientes Registrados</h3>
-                    <div class="card p-4 min-h-[500px] overflow-y-auto">
-                        <p id="no-patients-found" class="text-center text-gray-500 italic p-4" style="display:none;">Nenhum paciente encontrado.</p>
-                        <div id="patient-list" class="space-y-2">
-                            <!-- Lista de pacientes será injetada aqui -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- COLUNA 2/3: Detalhes do Paciente -->
-                <div class="lg:col-span-2">
-                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Detalhes do Paciente</h3>
-                    <div class="card p-6 min-h-[500px]">
-                        <div id="patient-details">
-                            <p class="text-center text-gray-500 italic p-12" id="select-patient-message">
-                                Selecione um paciente na lista à esquerda para visualizar seu histórico de humor.
-                            </p>
-                            
-                            <!-- Header de Detalhes (Visível apenas após seleção) -->
-                            <div id="patient-mood-header" class="mb-6 border-b pb-2" style="display: none;">
-                                <h4 class="text-2xl font-bold text-indigo-700" id="selected-patient-name"></h4>
-                                <p class="text-sm text-gray-500">ID: <span id="selected-patient-id" class="font-mono text-xs"></span></p>
+            {/* Lista de Registros */}
+            <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Seus Registros Anteriores ({moodRecords.length})</h2>
+            <div className="space-y-4">
+                {moodRecords.length === 0 ? (
+                    <p className="text-gray-500 italic p-4 bg-white rounded-xl shadow-md">
+                        Nenhum registro de humor encontrado. Adicione o primeiro!
+                    </p>
+                ) : (
+                    moodRecords.map((record) => (
+                        <div 
+                            key={record.id} 
+                            className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-md hover:shadow-lg transition duration-200 border-l-4 border-blue-400 relative"
+                        >
+                            <div className="flex items-center mb-2 sm:mb-0 w-full sm:w-auto">
+                                <MoodIcon mood={record.mood} className="w-7 h-7" />
+                                <div className="ml-4 flex-1 min-w-0">
+                                    <p className="text-lg font-semibold text-gray-800">{record.mood}</p>
+                                    <p className="text-xs text-gray-500 italic">{formatDate(record.date)}</p>
+                                </div>
+                            </div>
+                            <div className="flex-1 min-w-0 sm:mx-6 my-2 sm:my-0">
+                                <p className="text-gray-700 break-words">{record.note}</p>
                             </div>
                             
-                            <!-- Lista de Humores do Paciente Selecionado -->
-                            <div id="patient-mood-history" class="space-y-3">
-                                <!-- Histórico de humor será injetado aqui -->
+                            <div className="flex space-x-2 items-center justify-end w-full sm:w-auto mt-2 sm:mt-0">
+                                {/* Lógica de Confirmação de Exclusão */}
+                                {deletingRecordId === record.id ? (
+                                    <div className="flex items-center space-x-2 p-2 bg-red-100 rounded-lg border border-red-300 transition duration-300">
+                                        <span className="text-red-700 text-sm font-medium">Confirma?</span>
+                                        <button
+                                            onClick={() => handleConfirmDelete(record.id)}
+                                            className="p-1 text-white bg-red-600 rounded-full hover:bg-red-700 transition"
+                                            title="Confirmar Exclusão"
+                                        >
+                                            <Check className="w-5 h-5" />
+                                        </button>
+                                        <button
+                                            onClick={handleCancelDelete}
+                                            className="p-1 text-red-600 bg-white border border-red-300 rounded-full hover:bg-gray-50 transition"
+                                            title="Cancelar"
+                                        >
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <SpeakButton text={record.note} mood={record.mood} />
+                                        <button
+                                            onClick={() => handleStartEdit(record)}
+                                            className="p-2 text-blue-600 rounded-full hover:bg-blue-100 transition shadow-sm"
+                                            title="Editar Registro"
+                                        >
+                                            <Edit className="w-5 h-5" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteClick(record.id)}
+                                            className="p-2 text-red-600 rounded-full hover:bg-red-100 transition shadow-sm"
+                                            title="Excluir Registro"
+                                        >
+                                            <Trash2 className="w-5 h-5" />
+                                        </button>
+                                    </>
+                                )}
                             </div>
-                             <p class="text-center text-gray-500 italic p-4" id="no-mood-records-patient-view" style="display: none;">
-                                Este paciente ainda não possui registros de humor.
-                            </p>
-                            <p class="text-center text-red-500 italic p-2 mt-4 text-xs" id="mock-data-warning" style="display: none;">
-                                ATENÇÃO (MOCK): No Modo de Simulação, todos os pacientes exibem o MESMO histórico de humor.
-                            </p>
                         </div>
-                    </div>
-                </div>
+                    ))
+                )}
             </div>
             
-            <button onclick="signOutUser()" class="btn-secondary mt-8 py-2 px-4 rounded-lg font-semibold">Sair</button>
+            {/* Renderiza o Modal de Edição se um registro estiver selecionado */}
+            {editingRecord && (
+                <EditModal 
+                    record={editingRecord}
+                    userId={userId}
+                    appId={appId}
+                    onSave={handleCloseEdit}
+                    onClose={handleCloseEdit}
+                    db={db}
+                    moods={moods}
+                    MoodIcon={MoodIcon}
+                />
+            )}
         </div>
-    </div>
+    );
+};
 
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, addDoc, onSnapshot, serverTimestamp, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        
-        // --- Variáveis Globais do Canvas (MANDATÓRIO) ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const loadingMessageEl = document.getElementById('loading-message');
-        
-        let firebaseConfig = null;
-        try {
-            // Tenta analisar a configuração JSON fornecida pelo ambiente
-            const configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-            firebaseConfig = JSON.parse(configString);
-        } catch (e) {
-            console.warn("Aviso: Falha ao tentar analisar __firebase_config. Assumindo configuração vazia.");
-            firebaseConfig = {};
-        }
-        
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        // Variáveis do Firebase
-        let app, db, auth;
-        let userId = null;
-        let userRole = null;
-        let authReady = false;
-        let isMockMode = false; 
-
-        // Variável de estado para o formulário de humor do paciente
-        let selectedMood = null;
-        
-        // Mapa para armazenar temporariamente pacientes e seus IDs (apenas para o mock mode)
-        let mockPatients = [];
-        let selectedMockPatientId = null; 
-
-        // Função para esconder o loading-view explicitamente (CRÍTICO)
-        window.hideLoading = function() {
-            const loadingView = document.getElementById('loading-view');
-            if (loadingView) {
-                loadingView.style.display = 'none';
-            }
-        }
-
-        // Define a função para mostrar a view correta
-        window.showView = function(viewId) {
-            // Esconde todas as views de conteúdo
-            document.querySelectorAll('.view').forEach(view => {
-                view.style.display = 'none';
-            });
-            const activeView = document.getElementById(viewId);
-            if (activeView) {
-                activeView.style.display = 'block';
-                // Garante que o loading-view seja escondido ao mostrar o conteúdo
-                hideLoading(); 
-            }
-            
-            // Lógica de warnings e botões mock
-            if (isMockMode) {
-                document.getElementById('mock-login-buttons').style.display = viewId === 'role-selection-view' ? 'block' : 'none';
-                
-                ['patient-mock-warning', 'psychologist-mock-warning', 'patient-view-mock-warning', 'psychologist-view-mock-warning'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.style.display = 'none';
-                });
-
-                if (viewId === 'registration-patient-view') document.getElementById('patient-mock-warning').style.display = 'block';
-                if (viewId === 'registration-psychologist-view') document.getElementById('psychologist-mock-warning').style.display = 'block';
-                if (viewId === 'patient-diary-view') document.getElementById('patient-view-mock-warning').style.display = 'block';
-                if (viewId === 'psychologist-dashboard-view') {
-                    document.getElementById('psychologist-view-mock-warning').style.display = 'block';
-                    // Aviso de dados mockados
-                    document.getElementById('mock-data-warning').style.display = 'block';
-                } else {
-                    document.getElementById('mock-data-warning').style.display = 'none';
-                }
-            }
-        }
-
-        // Função principal de inicialização e autenticação
-        async function initializeAppAndAuth() {
-            // 1. Verifica se a configuração está disponível (MUITO CRÍTICO AQUI)
-            if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
-                console.error("ERRO: Configuração do Firebase vazia. Não é possível conectar ao banco de dados. Entrando em Modo de Simulação (Mock Mode).");
-                loadingMessageEl.textContent = "ERRO: Configuração do Firebase vazia. Entrando em Modo de Simulação (Mock Mode).";
-                isMockMode = true; 
-                userId = crypto.randomUUID(); 
-                
-                document.getElementById('current-user-id-patient').textContent = userId.substring(0, 8) + "... (MOCK)";
-                document.getElementById('current-user-id-psychologist').textContent = userId.substring(0, 8) + "... (MOCK)";
-                
-                setTimeout(() => {
-                    const roleSelectionViewCard = document.getElementById('role-selection-view').querySelector('.card');
-                    let errorMsg = document.createElement('p');
-                    errorMsg.className = 'text-red-600 mb-4 font-semibold';
-                    errorMsg.textContent = 'ERRO: Falha na conexão com o banco de dados. O registro de usuários não funcionará (Modo Simulação).';
-                    if (!roleSelectionViewCard.querySelector('.text-red-600')) {
-                        roleSelectionViewCard.prepend(errorMsg);
-                    }
-                    showView('role-selection-view');
-                }, 200); 
-                return;
-            }
-            
-            try {
-                loadingMessageEl.textContent = "Inicializando serviços do Firebase...";
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                await setPersistence(auth, browserSessionPersistence);
-                loadingMessageEl.textContent = "Autenticando usuário...";
-
-                // Tenta autenticar com o token fornecido ou anonimamente
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        // Atualiza IDs nos forms de cadastro
-                        document.getElementById('current-user-id-patient').textContent = userId;
-                        document.getElementById('current-user-id-psychologist').textContent = userId;
-                        loadingMessageEl.textContent = "Verificando perfil...";
-                        await checkAndRouteUser();
-                        authReady = true;
-
-                    } else if (!user && authReady) {
-                        // Se deslogado, volta para a tela de seleção de perfil.
-                        userId = null;
-                        userRole = null;
-                        document.getElementById('current-user-id-patient').textContent = "Deslogado";
-                        document.getElementById('current-user-id-psychologist').textContent = "Deslogado";
-                        showView('role-selection-view');
-                    } else if (!user && !authReady) {
-                         // Primeira carga e não autenticado
-                        showView('role-selection-view');
-                        authReady = true;
-                    }
-                });
-
-            } catch (error) {
-                console.error("Erro na inicialização ou autenticação:", error);
-                loadingMessageEl.textContent = "Falha grave ao conectar ou autenticar no serviço. Tente recarregar.";
-                isMockMode = true; 
-                userId = crypto.randomUUID();
-                showView('role-selection-view'); 
-            }
-        }
-
-        // Função para verificar o perfil (role) do usuário e rotear
-        async function checkAndRouteUser() {
-            if (isMockMode || !userId) {
-                showView('role-selection-view');
-                return;
-            }
-
-            try {
-                // Caminho privado do perfil
-                const profileDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profile', 'role');
-                const docSnap = await getDoc(profileDocRef);
-
-                if (docSnap.exists()) {
-                    userRole = docSnap.data().role;
-
-                    // Usuário JÁ REGISTRADO, roteamento direto
-                    if (userRole === 'patient') {
-                        document.getElementById('display-patient-id').textContent = userId;
-                        showView('patient-diary-view');
-                        startMoodDiaryListener(); 
-                    } else if (userRole === 'psychologist') {
-                        document.getElementById('display-psychologist-id').textContent = userId;
-                        showView('psychologist-dashboard-view');
-                        startPsychologistListener();
-                    } else {
-                        showView('role-selection-view');
-                    }
-                } else {
-                    // Usuário AUTENTICADO, mas SEM PERFIL (PRIMEIRO ACESSO)
-                    showView('role-selection-view');
-                }
-            } catch (e) {
-                console.error("Erro ao verificar o perfil do usuário:", e);
-                showView('role-selection-view');
-            }
-        }
-        
-        // NOVO: Função para simular o login rápido (apenas mock mode)
-        window.simulateLogin = function(role) {
-            if (!isMockMode) {
-                 console.error("Simulação de login só está disponível no Modo Mock.");
-                 return;
-            }
-            
-            // Simula o registro e roteia
-            registerUser(null, role); 
-        }
-
-        // --- Funções de Cadastro (Registro) ---
-
-        async function registerUser(event, role) {
-            if (event && event.preventDefault) {
-                event.preventDefault();
-            }
-            
-            if (isMockMode) {
-                // --- LÓGICA DE SIMULAÇÃO (MOCK) ---
-                userRole = role; 
-                
-                if (role === 'patient') {
-                    const name = document.getElementById('patient-name').value.trim() || 'Paciente Mock';
-                    const newPatient = { id: userId, name: name, role: 'patient' };
-                    
-                    let existingPatients = JSON.parse(localStorage.getItem('mockPatients') || '[]');
-                    // Garante que o paciente mock não é adicionado duas vezes
-                    if (!existingPatients.find(p => p.id === userId)) {
-                        existingPatients.push(newPatient);
-                        localStorage.setItem('mockPatients', JSON.stringify(existingPatients));
-                    }
-                    
-                    document.getElementById('display-patient-id').textContent = userId.substring(0, 8) + "... (MOCK)";
-                    showView('patient-diary-view');
-                    startMoodDiaryListener(); 
-
-                } else { // role === 'psychologist'
-                    document.getElementById('display-psychologist-id').textContent = userId.substring(0, 8) + "... (MOCK)";
-                    showView('psychologist-dashboard-view');
-                    startPsychologistListener(); 
-                }
-                console.warn(`[MOCK MODE] Simulação de registro de ${role} bem-sucedida.`);
-                return;
-            }
-
-            // --- LÓGICA REAL (FIREBASE) ---
-            if (!userId || !db) {
-                console.error("Ação bloqueada: Firebase não inicializado ou usuário não logado.");
-                return;
-            }
-
-            let profileData = { role: role };
-            
-            if (role === 'patient') {
-                const name = document.getElementById('patient-name').value.trim();
-                const birthday = document.getElementById('patient-birthday').value;
-                profileData = { ...profileData, name, birthday, registeredAt: serverTimestamp() };
-            } else if (role === 'psychologist') {
-                const name = document.getElementById('psychologist-name').value.trim();
-                const crp = document.getElementById('psychologist-crp').value.trim();
-                profileData = { ...profileData, name, crp, registeredAt: serverTimestamp() };
-            }
-
-            try {
-                // Salva o perfil na coleção privada do usuário
-                const profileDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profile', 'role');
-                await setDoc(profileDocRef, profileData);
-                
-                // Salva uma cópia pública minimalista para listagem de pacientes/psicólogos
-                const publicPatientDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'user_profiles', userId);
-                await setDoc(publicPatientDocRef, { 
-                    name: profileData.name || 'Usuário Sem Nome', 
-                    role: role, 
-                }, { merge: true });
-
-                userRole = role; 
-                
-                // Redireciona para a view principal após o registro
-                if (role === 'patient') {
-                    document.getElementById('display-patient-id').textContent = userId;
-                    showView('patient-diary-view');
-                    startMoodDiaryListener();
-                } else {
-                    document.getElementById('display-psychologist-id').textContent = userId;
-                    showView('psychologist-dashboard-view');
-                    startPsychologistListener();
-                }
-
-            } catch (e) {
-                console.error("Erro ao salvar o registro no Firebase:", e);
-            }
-        }
-        
-        // Atacha listeners de submissão dos formulários
-        document.getElementById('patient-registration-form').addEventListener('submit', (e) => registerUser(e, 'patient'));
-        document.getElementById('psychologist-registration-form').addEventListener('submit', (e) => registerUser(e, 'psychologist'));
-
-        // --- Lógica de Seleção de Humor (Paciente) ---
-        document.getElementById('mood-options').addEventListener('click', (e) => {
-            const button = e.target.closest('.mood-selector-btn');
-            if (!button) return;
-
-            document.querySelectorAll('.mood-selector-btn').forEach(btn => {
-                btn.classList.remove('selected');
-            });
-
-            button.classList.add('selected');
-            selectedMood = button.getAttribute('data-mood');
-            document.getElementById('mood-level').value = selectedMood;
-        });
-
-
-        // --- Funções do Diário de Humor (Paciente) ---
-
-        async function saveMoodEntry(event) {
-            event.preventDefault();
-            
-            const moodLevelInput = document.getElementById('mood-level');
-            const moodNotes = document.getElementById('mood-notes').value.trim();
-            
-            if (!moodLevelInput.value) {
-                console.error("Por favor, selecione seu nível de humor.");
-                return;
-            }
-
-            if (isMockMode) {
-                // --- LÓGICA DE SIMULAÇÃO (MOCK) ---
-                console.warn(`[MOCK MODE] Registro de humor simulado (Nível: ${moodLevelInput.value}, Notas: "${moodNotes}")`);
-                
-                const newMood = {
-                    id: crypto.randomUUID(),
-                    level: parseInt(selectedMood, 10),
-                    notes: moodNotes,
-                    timestamp: new Date()
-                };
-                
-                // Adiciona o novo registro simulado à lista (compartilhada no mock)
-                let existingMocks = JSON.parse(localStorage.getItem('mockMoods') || '[]');
-                existingMocks.unshift(newMood); // Adiciona no início (mais recente)
-                localStorage.setItem('mockMoods', JSON.stringify(existingMocks));
-
-                // A lista de paciente e a do psicólogo usam essa mesma chave para o mock.
-                renderMoodEntries(existingMocks, 'mood-list', 'no-mood-records'); 
-
-                // Limpa o formulário APÓS o sucesso simulado e renderização
-                document.getElementById('mood-diary-form').reset();
-                moodLevelInput.value = '';
-                selectedMood = null;
-                document.querySelectorAll('.mood-selector-btn').forEach(btn => btn.classList.remove('selected'));
-
-                return;
-            }
-
-            // --- LÓGICA REAL (FIREBASE) ---
-            if (!userId || userRole !== 'patient' || !db) {
-                console.error("Ação não permitida. Você não está logado como paciente.");
-                return;
-            }
-
-            try {
-                const moodCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_entries');
-                
-                await addDoc(moodCollectionRef, {
-                    level: parseInt(moodLevelInput.value, 10),
-                    notes: moodNotes,
-                    timestamp: serverTimestamp()
-                });
-                
-                // Limpa o formulário após o sucesso
-                document.getElementById('mood-diary-form').reset();
-                moodLevelInput.value = '';
-                selectedMood = null;
-                document.querySelectorAll('.mood-selector-btn').forEach(btn => btn.classList.remove('selected'));
-                console.log("Registro de humor salvo com sucesso.");
-
-            } catch (e) {
-                console.error("Erro ao salvar registro de humor:", e);
-            }
-        }
-
-        // Atacha listener do formulário de humor
-        document.getElementById('mood-diary-form').addEventListener('submit', saveMoodEntry);
-
-
-        // Listener de Real-Time para os Registros de Humor (Paciente)
-        function startMoodDiaryListener() {
-            // Atualiza o título da lista para o modo real
-            document.getElementById('list-title-suffix').textContent = '';
-            
-            if (isMockMode) {
-                 // Em mock mode, garante que qualquer registro simulado anterior seja exibido
-                 document.getElementById('list-title-suffix').textContent = '(Simulado)';
-                 renderMoodEntries(JSON.parse(localStorage.getItem('mockMoods') || '[]'), 'mood-list', 'no-mood-records');
-                 return;
-            }
-
-            const moodCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'mood_entries');
-            
-            onSnapshot(moodCollectionRef, (snapshot) => {
-                let moods = [];
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    moods.push({
-                        id: doc.id,
-                        ...data,
-                        timestamp: data.timestamp ? data.timestamp.toDate() : new Date(), 
-                    });
-                });
-
-                moods.sort((a, b) => b.timestamp - a.timestamp);
-                renderMoodEntries(moods, 'mood-list', 'no-mood-records');
-            }, (error) => {
-                console.error("Erro ao escutar registros de humor:", error);
-            });
-        }
-
-        // --- Funções do Dashboard do Psicólogo ---
-        
-        // Listener de Real-Time para a lista de Pacientes
-        function startPsychologistListener() {
-             if (isMockMode) {
-                // Carrega pacientes mock e renderiza a lista
-                mockPatients = JSON.parse(localStorage.getItem('mockPatients') || '[]').filter(p => p.role === 'patient');
-                renderPatientList(mockPatients);
-                // O dashboard precisa de um ID de paciente para ver os dados. Selecionamos o primeiro mock.
-                if (mockPatients.length > 0) {
-                     viewPatientMood(mockPatients[0].id, mockPatients[0].name);
-                } else {
-                    document.getElementById('select-patient-message').style.display = 'block';
-                    document.getElementById('patient-mood-header').style.display = 'none';
-                    document.getElementById('no-mood-records-patient-view').style.display = 'none';
-                    document.getElementById('patient-mood-history').innerHTML = '';
-                }
-                return;
-            }
-
-            if (!db || userRole !== 'psychologist') return;
-
-            // Busca perfis públicos (apenas pacientes)
-            const publicProfilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'user_profiles');
-            
-            const patientQuery = query(publicProfilesRef, where("role", "==", "patient"));
-
-            onSnapshot(patientQuery, (snapshot) => {
-                let patients = [];
-                snapshot.forEach(doc => {
-                    patients.push({
-                        id: doc.id,
-                        name: doc.data().name || 'Paciente Sem Nome',
-                    });
-                });
-                renderPatientList(patients);
-                // Se houver pacientes, visualiza o primeiro por padrão
-                if (patients.length > 0 && !selectedMockPatientId) {
-                    viewPatientMood(patients[0].id, patients[0].name);
-                }
-            }, (error) => {
-                console.error("Erro ao escutar a lista de pacientes:", error);
-            });
-        }
-        
-        // Renderiza a lista de pacientes no dashboard
-        function renderPatientList(patients) {
-            const patientListEl = document.getElementById('patient-list');
-            const noPatientsEl = document.getElementById('no-patients-found');
-
-            if (!patientListEl || !noPatientsEl) return;
-            
-            patientListEl.innerHTML = '';
-            
-            if (patients.length === 0) {
-                noPatientsEl.style.display = 'block';
-                return;
-            }
-
-            noPatientsEl.style.display = 'none';
-
-            patients.forEach(patient => {
-                const patientItem = document.createElement('div');
-                patientItem.className = `patient-item p-3 rounded-lg border-b border-gray-100`;
-                patientItem.id = `patient-item-${patient.id}`;
-                patientItem.innerHTML = `
-                    <div class="font-semibold text-gray-800">${patient.name}</div>
-                    <div class="text-xs text-gray-500 font-mono truncate">${patient.id.substring(0, 8)}...</div>
-                `;
-                patientItem.onclick = () => viewPatientMood(patient.id, patient.name);
-                patientListEl.appendChild(patientItem);
-            });
-        }
-
-        // Busca e exibe o histórico de humor de um paciente
-        window.viewPatientMood = async function(patientId, patientName) {
-            selectedMockPatientId = patientId; // Define o paciente selecionado (para realçar na lista)
-
-            // Atualiza o realce na lista
-            document.querySelectorAll('.patient-item').forEach(el => el.classList.remove('selected'));
-            const selectedEl = document.getElementById(`patient-item-${patientId}`);
-            if (selectedEl) selectedEl.classList.add('selected');
-
-            // Esconde a mensagem inicial e mostra o header de detalhes
-            document.getElementById('select-patient-message').style.display = 'none';
-            document.getElementById('patient-mood-header').style.display = 'block';
-
-            // Atualiza o header
-            document.getElementById('selected-patient-name').textContent = patientName;
-            document.getElementById('selected-patient-id').textContent = patientId;
-            
-            if (isMockMode) {
-                 // Busca os registros de humor mock (NOTE: É o mesmo mock para todos os pacientes!)
-                 const mockMoods = JSON.parse(localStorage.getItem('mockMoods') || '[]');
-                 renderMoodEntries(mockMoods, 'patient-mood-history', 'no-mood-records-patient-view');
-                 return;
-            }
-
-            // --- LÓGICA REAL (FIREBASE) ---
-            const moodCollectionRef = collection(db, 'artifacts', appId, 'users', patientId, 'mood_entries');
-            
-            // Usamos onSnapshot para atualizações em tempo real
-            onSnapshot(moodCollectionRef, (snapshot) => {
-                let moods = [];
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    moods.push({
-                        id: doc.id,
-                        ...data,
-                        timestamp: data.timestamp ? data.timestamp.toDate() : new Date(), 
-                    });
-                });
-
-                moods.sort((a, b) => b.timestamp - a.timestamp);
-                renderMoodEntries(moods, 'patient-mood-history', 'no-mood-records-patient-view');
-            }, (error) => {
-                console.error("Erro ao escutar o humor do paciente:", error);
-                document.getElementById('patient-mood-history').innerHTML = `<p class="text-red-500">Falha ao carregar dados.</p>`;
-            });
-        }
-        
-        // Função universal para renderizar registros de humor
-        function renderMoodEntries(moods, listContainerId, noRecordsId) {
-            const moodList = document.getElementById(listContainerId);
-            const noRecordsEl = document.getElementById(noRecordsId); 
-
-            if (!moodList || !noRecordsEl) {
-                console.error("ERRO DE RENDERIZAÇÃO: Elementos de lista de humor não encontrados.");
-                return;
-            }
-            
-            moodList.innerHTML = ''; 
-
-            if (moods.length === 0) {
-                noRecordsEl.style.display = 'block'; 
-                return;
-            }
-            
-            noRecordsEl.style.display = 'none';
-
-            // Pega apenas os 10 mais recentes
-            const entriesToRender = moods.slice(0, 10);
-            
-            const styleMap = {
-                1: { emoji: '😞', text: 'Terrível', color: 'bg-red-100 text-red-800', border: 'red' }, 
-                2: { emoji: '😔', text: 'Ruim', color: 'bg-orange-100 text-orange-800', border: 'orange' }, 
-                3: { emoji: '😐', text: 'Neutro', color: 'bg-gray-100 text-gray-800', border: 'gray' }, 
-                4: { emoji: '🙂', text: 'Bom', color: 'bg-blue-100 text-blue-800', border: 'blue' }, 
-                5: { emoji: '😊', text: 'Excelente', color: 'bg-green-100 text-green-800', border: 'green' }
-            };
-
-            entriesToRender.forEach(mood => {
-                const entryDate = mood.timestamp instanceof Date ? mood.timestamp : new Date(mood.timestamp);
-
-                const dateString = entryDate.toLocaleDateString('pt-BR', {
-                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                });
-                
-                const { emoji, text, color, border } = styleMap[mood.level] || { emoji: '❓', text: 'Desconhecido', color: 'bg-gray-200 text-gray-600', border: 'gray' };
-                
-
-                const entryDiv = document.createElement('div');
-                // Use a classe 'card' para manter a aparência consistente no dashboard
-                entryDiv.className = `card p-4 flex justify-between items-center border-l-4 border-${border}-500 ${color}`;
-
-                entryDiv.innerHTML = `
-                    <div class="flex items-center">
-                        <span class="text-2xl mr-3">${emoji}</span>
-                        <div>
-                            <span class="font-semibold text-base flex items-center">${text}</span>
-                            <p class="text-xs text-gray-500">${dateString}</p>
-                        </div>
-                    </div>
-                    <p class="text-sm text-gray-600 truncate max-w-xs ml-4 text-right">${mood.notes || 'Nenhuma nota.'}</p>
-                `;
-                
-                moodList.appendChild(entryDiv);
-            });
-        }
-
-        // --- Função de Sair ---
-        window.signOutUser = async function() {
-            if (isMockMode) {
-                 console.warn("[MOCK MODE] Simulação de logout. Redirecionando para a seleção de perfil.");
-                 userRole = null;
-                 // Não remove os dados mockados de humor/paciente para que o psicólogo possa vê-los
-                 // localStorage.removeItem('mockMoods'); 
-                 // localStorage.removeItem('mockPatients');
-                 renderMoodEntries([], 'mood-list', 'no-mood-records');
-                 showView('role-selection-view');
-                 return;
-            }
-
-            try {
-                await signOut(auth);
-                console.log("Usuário desconectado.");
-            } catch (error) {
-                console.error("Erro ao desconectar:", error);
-            }
-        }
-        
-        // --- Início da Aplicação ---
-        setTimeout(initializeAppAndAuth, 50); 
-    </script>
-</body>
-</html>
+export default App;
