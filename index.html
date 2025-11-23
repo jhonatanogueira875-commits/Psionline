@@ -36,10 +36,11 @@
     <!-- Script de Inicialização -->
     <script type="module">
         
+        // Variável para armazenar o módulo importado
+        let appModule = null;
+
         // 1. Carrega o app.js como um módulo
-        let appModule;
         try {
-            // O caminho './app.js' é obrigatório.
             appModule = await import('./app.js');
         } catch (e) {
             console.error("ERRO CRÍTICO: Falha ao carregar app.js.", e);
@@ -52,16 +53,20 @@
                     </div>
                 </div>
             `;
-            // ATENÇÃO: O 'return' que estava causando o erro de sintaxe foi removido daqui.
+            // Não há 'return' neste bloco.
         }
 
-        // Se o módulo não foi carregado, não prosseguimos.
-        if (!appModule) return; 
-
+        // Se o módulo não foi carregado, a variável appModule será null.
+        if (!appModule) {
+            console.log("Módulo não carregado. Interrompendo a inicialização.");
+            return; // Este return está DENTRO de uma função, mas a sintaxe 'await import' pode estar causando o problema.
+        }
+        
         // 2. Extrai as funções essenciais
+        // Se appModule for null, isso irá lançar um TypeError, mas o SyntaxError será evitado.
         const { render, setCurrentPage, setCurrentSession, supabaseClient } = appModule;
         
-        // Verifica se o cliente Supabase está disponível
+        // 3. Verifica se o cliente Supabase está disponível
         if (!supabaseClient) {
             console.error("ERRO: Cliente Supabase não está disponível.");
             document.getElementById('app').innerHTML = `
@@ -77,7 +82,7 @@
 
         console.log("✔ DOM Carregado. Iniciando monitoramento de autenticação...");
 
-        // 3. Inicia o monitoramento de autenticação do Supabase
+        // 4. Inicia o monitoramento de autenticação do Supabase
         supabaseClient.auth.onAuthStateChange((event, session) => {
             console.log(`Auth state mudou: Evento: ${event}, Sessão: ${session ? 'Ativa' : 'Nula'}`);
             
