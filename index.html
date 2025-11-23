@@ -4,23 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Psionline - Painel Admin</title>
-    <!-- Tailwind CSS CDN (aviso: usar só para dev) -->
+    <!-- Tailwind CSS CDN (aviso: não recomendado para produção) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js -->
+    <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <!-- Supabase Client -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        .glass {
-            backdrop-filter: blur(10px);
-            background-color: rgba(255, 255, 255, 0.7);
-        }
+        .glass { backdrop-filter: blur(10px); background-color: rgba(255,255,255,0.7); }
         .font-sans { font-family: 'Inter', sans-serif; }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
     <div id="app">
+        <!-- Loader inicial -->
         <div class="flex justify-center items-center h-screen bg-gray-50">
             <div class="flex items-center p-8 rounded-xl bg-white shadow-xl">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mr-4"></div>
@@ -29,34 +27,32 @@
         </div>
     </div>
 
-    <!-- App.js -->
-    <script type="module" src="./app.js"></script>
-
-    <!-- Inicialização do Supabase e Render -->
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            if(window.appModule && window.appModule.supabaseClient) {
-                const client = window.appModule.supabaseClient;
-
-                // Monitora mudanças de autenticação
-                client.auth.onAuthStateChange((event, session) => {
-                    window.appModule.setCurrentSession(session);
-                    if(session) window.appModule.setCurrentPage('admin');
-                    else window.appModule.setCurrentPage('login');
-                    window.appModule.render();
-                });
-
-                // Renderiza imediatamente se já houver sessão ativa
-                client.auth.getSession().then(({ data: { session } }) => {
-                    window.appModule.setCurrentSession(session);
-                    if(session) window.appModule.setCurrentPage('admin');
-                    else window.appModule.setCurrentPage('login');
-                    window.appModule.render();
-                });
-            } else {
-                console.error("ERRO: Supabase ou appModule não disponível.");
+    <!-- Script de inicialização -->
+    <script type="module">
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const appModule = await import('./app.js');
+            // Expor globalmente para onclick inline funcionar
+            window.appModule = appModule;
+            // Chama o render inicial
+            appModule.render();
+            console.log("✔ DOM Carregado e app.js inicializado");
+        } catch (e) {
+            console.error("ERRO CRÍTICO: Falha ao carregar app.js.", e);
+            const app = document.getElementById('app');
+            if (app) {
+                app.innerHTML = `
+                    <div class="flex justify-center items-center h-screen bg-red-100">
+                        <div class="text-center p-8 max-w-lg w-full text-red-800 bg-white border border-red-400 rounded-lg shadow-2xl">
+                            <p class="font-bold text-xl mb-3">🚨 Falha Crítica na Inicialização 🚨</p>
+                            <p class="text-base mb-4">O arquivo <code>app.js</code> não foi carregado corretamente.</p>
+                            <p class="text-sm text-red-600 font-mono">Detalhe: ${e.message}</p>
+                        </div>
+                    </div>
+                `;
             }
-        });
+        }
+    });
     </script>
 </body>
 </html>
