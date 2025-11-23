@@ -1,4 +1,5 @@
 /* app.js - Versão com Dashboard Admin completo
+   Sintaxe de chaves revisada para corrigir o Uncaught SyntaxError.
    Cards, gráfico de barras (atendimentos por mês),
    gráfico de linhas (novos usuários por mês) e
    lista de próximos agendamentos.
@@ -16,7 +17,7 @@ if (!supabaseClient) console.error("ERRO: Supabase não inicializado");
 let currentPage = "login";
 let currentAuthSession = null;
 let currentAdminTab = "dashboard";
-let loginError = ""; // Novo estado para exibir erros de login na UI
+let loginError = ""; // Estado para exibir erros de login na UI
 
 /* -------------------------
    Utilitários e Formatação
@@ -44,6 +45,7 @@ async function handleLogin(email, password) {
     loginError = ""; // Limpa erros anteriores
     render(); // Re-renderiza para limpar a tela
 
+    // Tenta fazer o login no Supabase Auth
     const { data, error } = await supabaseClient.auth.signInWithPassword({
         email: email,
         password: password
@@ -482,6 +484,3 @@ if (!currentAuthSession) {
 } else {
     render();
 }
-    render();
-}
-
