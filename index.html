@@ -346,7 +346,7 @@
             if (!container) return;
             
             try {
-                // Usamos o count para evitar erro de index, e o join para pegar os nomes
+                // Usamos o select com join para pegar os nomes, ordenamos por data
                 const { data: apps, error } = await supabaseClient
                     .from('appointments')
                     .select('scheduled_date, patient:patient_id(full_name), psychologist:psychologist_id(full_name)')
@@ -356,9 +356,9 @@
                 if (error) throw error;
 
                 const list = apps.map(a => {
-                    // Supabase retorna arrays se houver join, usamos o primeiro elemento (Garantindo compatibilidade)
-                    const patient = Array.isArray(a.patient) ? a.patient[0] : a.patient;
-                    const psy = Array.isArray(a.psychologist) ? a.psychologist[0] : a.psychologist;
+                    // Garante que patient e psychologist são objetos (resultantes do join)
+                    const patient = a.patient;
+                    const psy = a.psychologist;
                     
                     const date = a.scheduled_date ? new Date(a.scheduled_date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Data Indefinida';
 
@@ -389,7 +389,7 @@
                 const { data: users, error } = await supabaseClient
                     .from('profiles')
                     .select('*') 
-                    .order('full_name', { ascending: true }); // Ordenação no JS para evitar erros de índice
+                    .order('full_name', { ascending: true });
 
                 if (error) throw error;
                 
