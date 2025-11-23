@@ -22,6 +22,7 @@ let currentAdminTab = "dashboard";
    ------------------------- */
 async function handleLogin(email, password) {
   try {
+    // 1. Logar no Supabase Auth
     const { data: { session }, error } = await supabaseClient.auth.signInWithPassword({
       email: email,
       password: password,
@@ -32,7 +33,7 @@ async function handleLogin(email, password) {
     
     const user = session.user;
     
-    // 1. Verificar se o usuário possui a role 'admin'
+    // 2. Verificar se o usuário possui a role 'admin'
     const { data: userRoles, error: rolesError } = await supabaseClient
       .from('user_roles')
       .select('role')
@@ -41,7 +42,7 @@ async function handleLogin(email, password) {
 
     if (rolesError) throw new Error("Erro ao buscar role: " + rolesError.message);
     
-    // Verificação defensiva: RLS pode retornar data nula mesmo sem error explícito
+    // Verificação defensiva: RLS pode retornar data nula ou array vazio
     if (!userRoles || userRoles.length === 0 || userRoles[0].role !== 'admin') {
         throw new Error("Acesso negado: Usuário não é administrador ou role não encontrada.");
     }
@@ -52,7 +53,8 @@ async function handleLogin(email, password) {
     render();
 
   } catch (e) {
-    alert(e.message); // Usando alert() provisório para erro fatal
+    // Usando alert() provisório para erro fatal de login
+    alert(e.message); 
     console.error(e);
     renderLogin(); // Volta para o login em caso de falha
   }
@@ -62,7 +64,10 @@ function handleLogout() {
   // Limpa o estado da aplicação e força a volta para a página de login
   currentAuthSession = null;
   currentPage = 'login';
+  // Redireciona o usuário para a página de login
   render();
+  // Tenta fazer o logout no Supabase (assíncrono, mas não crucial para o fluxo)
+  supabaseClient.auth.signOut().catch(e => console.error("Erro ao deslogar no Supabase:", e));
 }
 
 /* -------------------------
@@ -97,8 +102,11 @@ function renderLogin() {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            handleLogin(email, password);
+            // Chamada para a função global
+            window.handleLogin(email, password); 
         };
+        // Expondo handleLogin para o index.html, caso necessário.
+        window.handleLogin = handleLogin;
     </script>
   `;
 }
@@ -156,12 +164,12 @@ function renderAdminShell() {
 
     </div>
     <script>
-        document.getElementById('logoutBtn').onclick = handleLogout;
+        document.getElementById('logoutBtn').onclick = window.handleLogout;
         document.querySelectorAll('.tab-link').forEach(link => {
             link.onclick = (e) => {
                 e.preventDefault();
                 currentAdminTab = e.currentTarget.dataset.tab;
-                render(); // Re-renderiza o shell para atualizar o estado da navegação
+                window.render(); // Re-renderiza o shell para atualizar o estado da navegação
             };
         });
     </script>
@@ -580,5 +588,6 @@ function render() {
   app.innerHTML = "<p>Página desconhecida</p>";
 }
 
-// Expõe a função render para ser chamada pelo index.html após o carregamento
+// Expõe a função render e handleLogout ao escopo global (Window) para que o index.html possa encontrá-las.
 window.render = render;
+window.handleLogout = handleLogout;
