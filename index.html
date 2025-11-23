@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro de Profissional</title>
+    <title>Cadastro de Paciente</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Inter Font -->
@@ -19,11 +19,11 @@
 
     <div id="app" class="min-h-screen flex items-center justify-center p-4">
         <div class="w-full max-w-lg bg-white shadow-xl rounded-2xl p-8 space-y-6">
-            <h1 class="text-3xl font-bold text-center text-indigo-700">
-                Cadastro de Profissional
+            <h1 class="text-3xl font-bold text-center text-green-700">
+                Cadastro de Paciente
             </h1>
             <p class="text-center text-gray-500">
-                Preencha seus dados para criar sua conta de psicólogo.
+                Preencha seus dados para começar a buscar o seu psicólogo.
             </p>
 
             <form id="signupForm" class="space-y-4">
@@ -32,37 +32,29 @@
                 <div>
                     <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
                     <input type="email" id="email" required autocomplete="email"
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
                 </div>
 
                 <!-- Senha -->
                 <div>
                     <label for="password" class="block text-sm font-medium text-gray-700">Senha</label>
                     <input type="password" id="password" required autocomplete="new-password"
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
                 </div>
 
                 <!-- Nome Completo -->
                 <div>
                     <label for="fullName" class="block text-sm font-medium text-gray-700">Nome Completo</label>
                     <input type="text" id="fullName" required
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
                 </div>
 
-                <!-- CRP -->
+                <!-- Especialidade Preferida (Opcional) -->
                 <div>
-                    <label for="crp" class="block text-sm font-medium text-gray-700">Número do CRP (Conselho Regional de Psicologia)</label>
-                    <input type="text" id="crp" required
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                           placeholder="Ex: 06/123456">
-                </div>
-                
-                <!-- Especialidade -->
-                <div>
-                    <label for="specialty" class="block text-sm font-medium text-gray-700">Especialidade Principal</label>
-                    <select id="specialty" required
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                        <option value="" disabled selected>Selecione uma especialidade</option>
+                    <label for="preferredSpecialty" class="block text-sm font-medium text-gray-700">O que você busca em um profissional? (Opcional)</label>
+                    <select id="preferredSpecialty"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                        <option value="none" selected>Não sei / Sem preferência</option>
                         <option value="TCC">Terapia Cognitivo-Comportamental (TCC)</option>
                         <option value="Psicanalise">Psicanálise</option>
                         <option value="Humanista">Abordagem Humanista</option>
@@ -73,7 +65,7 @@
 
                 <!-- Botão de Cadastro -->
                 <button type="submit" id="submitButton"
-                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out">
                     Cadastrar
                 </button>
             </form>
@@ -86,7 +78,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, collection, getDocs, query, where, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // Ativa o log de debug do Firestore
@@ -121,11 +113,11 @@
                     await signInWithCustomToken(auth, initialAuthToken);
                     console.log("Autenticação inicial bem-sucedida.");
                 } else {
-                    console.warn("Token de autenticação inicial não fornecido. O sistema pode depender de um usuário autenticado.");
+                    // Se não houver token, podemos prosseguir, pois o cadastro não requer login prévio
+                    console.warn("Token de autenticação inicial não fornecido.");
                 }
             } catch (error) {
                 console.error("Erro ao realizar autenticação inicial:", error);
-                showMessage("Erro de autenticação inicial. Verifique o console.", true);
             }
         }
 
@@ -140,11 +132,10 @@
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const fullName = document.getElementById('fullName').value;
-            const crp = document.getElementById('crp').value;
-            const specialty = document.getElementById('specialty').value;
+            const preferredSpecialty = document.getElementById('preferredSpecialty').value;
 
-            if (!email || !password || !fullName || !crp || !specialty) {
-                showMessage("Por favor, preencha todos os campos.", true);
+            if (!email || !password || !fullName) {
+                showMessage("Por favor, preencha todos os campos obrigatórios.", true);
                 submitButton.disabled = false;
                 submitButton.textContent = 'Cadastrar';
                 return;
@@ -156,36 +147,30 @@
                 const user = userCredential.user;
                 const userId = user.uid;
 
-                // 2. Criar Documento de Perfil no Firestore (Coleção Pública)
-                const psychologistDocPath = `/artifacts/${appId}/public/data/psychologists/${userId}`;
+                // 2. Criar Documento de Perfil no Firestore (Coleção Pública para Pacientes)
+                const patientDocPath = `/artifacts/${appId}/public/data/patients/${userId}`;
                 
-                await setDoc(doc(db, psychologistDocPath), {
+                await setDoc(doc(db, patientDocPath), {
                     userId: userId,
                     fullName: fullName,
-                    crp: crp,
-                    specialty: specialty,
-                    role: 'psychologist', // Definindo a role explicitamente no perfil
-                    isAvailable: true,
+                    preferredSpecialty: preferredSpecialty !== 'none' ? preferredSpecialty : null,
+                    role: 'patient', // Definindo a role explicitamente
+                    assignedPsychologistId: null, // Nenhum psicólogo atribuído no início
                     createdAt: new Date().toISOString()
                 });
                 
-                // 3. Atualizar o Perfil do Usuário no Supabase Auth
-                // NOTE: No ambiente Canvas, a role é geralmente passada pelo Custom Claims ou pelo Backend.
-                // Aqui, apenas usamos o Firestore como a fonte da verdade para o perfil.
-                // Uma função de backend (ex: trigger do Supabase) precisaria copiar 'role: psychologist' para a tabela 'users' do Supabase.
-                // Como não temos acesso ao backend do Supabase, o Firestore é o nosso registro principal.
                 console.log(`Usuário criado no Auth com ID: ${userId}`);
-                console.log(`Perfil 'psychologist' salvo no Firestore em: ${psychologistDocPath}`);
+                console.log(`Perfil 'patient' salvo no Firestore em: ${patientDocPath}`);
 
 
-                showMessage(`Cadastro de ${fullName} concluído com sucesso! Você já pode fazer login.`, false);
-                form.reset(); // Limpa o formulário após o sucesso
+                showMessage(`Cadastro de ${fullName} concluído com sucesso! Você já pode buscar um profissional.`, false);
+                form.reset(); 
 
             } catch (error) {
                 console.error("Erro durante o cadastro:", error);
                 let errorMessage = "Ocorreu um erro desconhecido durante o cadastro.";
                 
-                // Mapeamento de erros comuns do Firebase Auth
+                // Mapeamento de erros comuns
                 if (error.code === 'auth/email-already-in-use') {
                     errorMessage = "Este email já está em uso. Tente outro ou faça login.";
                 } else if (error.code === 'auth/invalid-email') {
@@ -193,7 +178,7 @@
                 } else if (error.code === 'auth/weak-password') {
                     errorMessage = "A senha deve ter pelo menos 6 caracteres.";
                 } else if (error.message.includes('permission-denied')) {
-                    errorMessage = "Erro de Permissão: Verifique se as regras do Firestore permitem a criação de documentos.";
+                    errorMessage = "Erro de Permissão: Verifique as regras do Firestore.";
                 }
 
                 showMessage(errorMessage, true);
