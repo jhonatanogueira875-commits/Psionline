@@ -25,33 +25,39 @@ let currentAdminTab = "dashboard";
 async function checkAdminStatus(userId) {
   if (!userId) return false;
   
-  console.log("Verificando status de administrador para o ID:", userId);
+  console.log("Verificando status de administrador/ROLE para o ID:", userId);
 
   try {
-    // Tenta buscar 'is_admin' da tabela 'profiles' para o ID do usuário
+    // CORREÇÃO CRÍTICA: O erro anterior 'is_admin does not exist' foi corrigido.
+    // Agora buscamos a coluna 'role' que existe na tabela 'profiles'.
     const { data, error } = await supabaseClient
       .from('profiles')
-      .select('is_admin')
+      .select('role') // AGORA BUSCA A COLUNA 'ROLE'
       .eq('id', userId)
       .single(); // Espera apenas um resultado
 
-    if (error && error.code === '400') {
-        // Este erro 400 agora (se ocorrer) indica RLS na leitura, mas já deve estar corrigido.
-        console.error("ERRO RLS/400 (Profiles): Acesso negado. Verifique as políticas de RLS na tabela 'profiles'.", error);
+    if (error) {
+        // Erro geral (RLS, rede, etc.)
+        console.error("Erro ao buscar perfil (possível RLS ou coluna 'role' ausente):", error.message);
+        showToast(`Erro ao checar Role: ${error.message}. Verifique RLS ou o nome da coluna 'role'.`, 'error');
         return false;
     }
     
-    if (error) {
-        // Qualquer outro erro de busca
-        console.error("Erro ao buscar perfil:", error.message);
-        return false;
+    // Se os dados existirem e a 'role' for EXATAMENTE 'admin'
+    const isAdmin = data && data.role === 'admin';
+    console.log(`Role encontrada: ${data.role}. É Admin? ${isAdmin}`);
+    
+    // Se o usuário não é admin, exibe um toast informativo
+    if (!isAdmin) {
+        // A mensagem é exibida antes do logout ser forçado
+        showToast(`Sua função ('${data?.role || 'indefinida'}') não tem acesso ao painel de administração.`, 'warn');
     }
-
-    // Se os dados existirem e 'is_admin' for true
-    return data && data.is_admin === true;
+    
+    return isAdmin;
 
   } catch (e) {
     console.error("Exceção ao verificar status de administrador:", e);
+    showToast(`Erro Inesperado na Admin Check: ${e.message}`, 'error');
     return false;
   }
 }
@@ -75,11 +81,11 @@ async function handleAuthChange(session) {
     currentAdminTab = 'dashboard';
   } else {
     currentPage = 'login';
-    // Se logado mas não admin, desloga (apenas para garantir) e mostra mensagem de acesso negado
+    // Se logado mas não admin OU se houve erro na checagem, desloga para garantir
     if (session) {
-      console.warn("Usuário logado, mas não é administrador. Acesso negado ao painel.");
-      await supabaseClient.auth.signOut(); // Força o logout se não for admin
-      showToast('Acesso Negado: Você não é um administrador.', 'error');
+      console.warn("Usuário logado, mas não é administrador. Forçando logout e exibindo tela de login.");
+      // Não precisa esperar o signOut, pois o listener vai lidar com o próximo evento
+      supabaseClient.auth.signOut(); 
     }
   }
 
@@ -109,7 +115,6 @@ async function handleLogin(email, password) {
         // Exibe o erro da API, que será "Invalid login credentials"
         errorArea.innerHTML = `<p class="text-red-500 mt-2 text-sm">Falha no Login: ${error.message}</p>`;
       }
-      // O finally reativa o botão
       return; 
     }
     
@@ -124,8 +129,12 @@ async function handleLogin(email, password) {
     }
   } finally {
     if (loginButton) {
-      loginButton.disabled = false;
-      loginButton.textContent = 'Entrar';
+      // O botão será reativado após o handleAuthChange() finalizar a renderização completa
+      // Se der erro de login antes de handleAuthChange, reativa aqui:
+      if (currentPage === 'login') {
+         loginButton.disabled = false;
+         loginButton.textContent = 'Entrar';
+      }
     }
   }
 }
@@ -145,7 +154,7 @@ function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     if (!container) return;
 
-    const color = type === 'error' ? 'bg-red-500' : 'bg-blue-500';
+    const color = type === 'error' ? 'bg-red-500' : (type === 'warn' ? 'bg-yellow-500' : 'bg-blue-500');
     const toast = document.createElement('div');
     toast.className = `fixed bottom-5 right-5 ${color} text-white p-4 rounded-lg shadow-xl transition-opacity duration-300 z-50`;
     toast.textContent = message;
@@ -275,28 +284,34 @@ function attachAdminListeners() {
    Views - Admin Content
    ------------------------ */
 
-// Funções de Gráfico (Placeholder para demonstração)
+// Gráfico: Placeholder para demonstração (sem Chart.js aqui)
 function renderChart(canvasId, type, labels, dataSet, options) {
     const ctx = document.getElementById(canvasId);
-    if (ctx) {
-        new window.Chart(ctx, {
-            type: type,
-            data: {
-                labels: labels,
-                datasets: dataSet,
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'top' },
-                    title: { display: options.title, text: options.titleText || '' }
-                },
-                ...options
-            }
-        });
+    if (!ctx) return;
+    if (typeof window.Chart === 'undefined') {
+        // Mensagem de erro se o Chart.js não estiver carregado
+        ctx.parentNode.innerHTML = `<p class="text-sm text-red-500">ERRO: Chart.js não carregado. Gráfico indisponível. Adicione a CDN.</p>`;
+        return;
     }
+    
+    new window.Chart(ctx, {
+        type: type,
+        data: {
+            labels: labels,
+            datasets: dataSet,
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                title: { display: options.title, text: options.titleText || '' }
+            },
+            ...options
+        }
+    });
 }
+
 
 // Placeholder para dados mockados/simulados
 function mockData() {
@@ -492,11 +507,6 @@ function addListener(element, event, handler) {
     listeners.push({ element, event, handler });
 }
 
-// ----------------------------------------------------
-// A função initializeApp não foi modificada e cuida da 
-// lógica de onAuthStateChange que dispara o render inicial.
-// ----------------------------------------------------
-
 function initializeApp() {
   // Configura um listener para mudanças de estado de autenticação (login, logout, token inicial)
   if (supabaseClient) {
@@ -516,7 +526,3 @@ function initializeApp() {
 
 // Inicia o processo de inicialização
 window.onload = initializeApp;
-
-// Inicia o processo de inicialização
-window.onload = initializeApp;
-
