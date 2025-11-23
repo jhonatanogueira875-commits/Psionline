@@ -1,178 +1,53 @@
-/* app.js - Versão Teste Completa */
-
-const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
-
-const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-if(!supabaseClient) console.error("ERRO: Supabase não inicializado");
+// app.js
+const SUPABASE_URL = 'https://...';
+const SUPABASE_ANON_KEY = '...';
+export const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentPage = "login";
-let currentAuthSession = null;
 let currentAdminTab = "dashboard";
+let currentAuthSession = null;
 
-/* -------------------------
-   Sessão e Página
-------------------------- */
-function setCurrentPage(newPage) { currentPage = newPage; }
-function setCurrentSession(session) { currentAuthSession = session; }
+export function setCurrentPage(page) { currentPage = page; }
+export function setCurrentSession(session) { currentAuthSession = session; }
 
-/* -------------------------
-   Login / Logout
-------------------------- */
-async function handleLogin(email, password) {
-    try {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if(error) throw error;
-        setCurrentPage('admin');
-        render();
-    } catch(err) {
-        console.error("Erro de login:", err.message);
-        const loginMsg = document.getElementById('login-message');
-        if(loginMsg) loginMsg.innerText = `Erro: ${err.message}`;
-    }
-}
-
-async function handleLogout() {
-    try {
-        const { error } = await supabaseClient.auth.signOut();
-        if(error) throw error;
-        setCurrentPage('login');
-        render();
-    } catch(err) { console.error("Erro de logout:", err.message); }
-}
-
-/* -------------------------
-   Render Admin Tabs
-------------------------- */
-function changeAdminTab(tab) {
-    currentAdminTab = tab;
-    render();
-}
-
-function renderAdminContent() {
+export function renderDashboard() {
     const main = document.getElementById('admin-content');
-    if(!main) return;
-
-    if(currentAdminTab === 'dashboard') renderDashboard();
-    else if(currentAdminTab === 'users') renderUsersContent();
-    else main.innerHTML = `<div class="p-8 text-center text-gray-500">Aba não encontrada: ${currentAdminTab}</div>`;
+    if (main) main.innerHTML = `<div>Dashboard carregado!</div>`;
 }
 
-/* -------------------------
-   Dashboard e Users - Mock
-------------------------- */
-async function renderDashboard() {
+export function renderUsersContent() {
     const main = document.getElementById('admin-content');
-    if(!main) return;
-    main.innerHTML = `
-        <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
-        <p class="text-gray-500">Aqui estarão os cards e gráficos do painel.</p>
-    `;
+    if (main) main.innerHTML = `<div>Usuários carregados!</div>`;
 }
 
-async function renderUsersContent() {
-    const main = document.getElementById('admin-content');
-    if(!main) return;
-    main.innerHTML = `
-        <h2 class="text-3xl font-bold text-gray-800 mb-6">Gerenciamento de Usuários</h2>
-        <p class="text-gray-500">Aqui estará a lista de usuários cadastrados.</p>
-    `;
+export function renderAdminContent() {
+    const adminContent = document.getElementById('admin-content');
+    if (!adminContent) return;
+    if (currentAdminTab === 'dashboard') renderDashboard();
+    else if (currentAdminTab === 'users') renderUsersContent();
+    else adminContent.innerHTML = `<div>Aba não encontrada: ${currentAdminTab}</div>`;
 }
 
-/* -------------------------
-   Views HTML
-------------------------- */
-function renderLogin() {
-    return `
-    <div class="flex flex-col items-center justify-center h-screen p-4 bg-gray-100">
-        <div class="glass p-8 rounded-2xl shadow-2xl w-full max-w-md">
-            <h1 class="text-3xl font-bold text-center text-indigo-700 mb-6">Psionline Admin</h1>
-            <form id="login-form">
-                <div class="mb-4">
-                    <label for="email" class="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
-                    <input type="email" id="email" name="email" placeholder="seu.admin@dominio.com" required 
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <div class="mb-6">
-                    <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Senha</label>
-                    <input type="password" id="password" name="password" required value="123456" 
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <button type="submit" id="loginButton" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg transition duration-150 ease-in-out shadow-md">
-                    Entrar
-                </button>
-                <p id="login-message" class="text-sm text-red-600 mt-4 text-center"></p>
-            </form>
-        </div>
+export function changeAdminTab(tab) { currentAdminTab = tab; render(); }
+
+export function renderLogin() {
+    return `<div class="flex items-center justify-center h-screen"><h1>Login</h1></div>`;
+}
+
+export function renderAdminShell() {
+    return `<div>
+        <header>Admin Header</header>
+        <main id="admin-content">Carregando...</main>
     </div>`;
 }
 
-function renderAdminShell() {
-    return `
-    <div class="min-h-screen flex flex-col">
-        <header class="bg-white shadow-md z-10 sticky top-0">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                <h1 class="text-2xl font-bold text-indigo-600">Psionline Admin</h1>
-                <nav class="flex space-x-4">
-                    <button onclick="window.appModule.changeAdminTab('dashboard')" class="tab-button p-2 rounded-md ${currentAdminTab==='dashboard'?'bg-indigo-100 text-indigo-700 font-semibold':'text-gray-600 hover:bg-gray-100'}">Dashboard</button>
-                    <button onclick="window.appModule.changeAdminTab('users')" class="tab-button p-2 rounded-md ${currentAdminTab==='users'?'bg-indigo-100 text-indigo-700 font-semibold':'text-gray-600 hover:bg-gray-100'}">Usuários</button>
-                    <button onclick="window.appModule.handleLogout()" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg text-sm transition duration-150">Sair</button>
-                </nav>
-            </div>
-        </header>
-        <main id="admin-content" class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-            <div class="text-center p-10">
-                <div class="animate-pulse text-gray-500">Carregando conteúdo...</div>
-            </div>
-        </main>
-    </div>`;
-}
-
-/* -------------------------
-   Render Principal
-------------------------- */
-function render() {
+export function render() {
     const app = document.getElementById('app');
-    if(!app) return console.error("#app não encontrado");
-
-    if(currentPage==='login') app.innerHTML = renderLogin();
-    else if(currentPage==='admin') {
+    if (!app) return;
+    if (currentPage === 'login') app.innerHTML = renderLogin();
+    else if (currentPage === 'admin') {
         app.innerHTML = renderAdminShell();
         renderAdminContent();
-    } else app.innerHTML = "<p>Página desconhecida</p>";
-}
-
-/* -------------------------
-   Listeners Globais
-------------------------- */
-document.addEventListener('submit', async (e) => {
-    if(e.target && e.target.id === 'login-form') {
-        e.preventDefault();
-        const loginButton = document.getElementById('loginButton');
-        loginButton.disabled = true;
-        loginButton.textContent = 'Autenticando...';
-
-        const email = e.target.email.value;
-        const password = e.target.password.value;
-        await handleLogin(email, password);
-
-        if(currentPage==='login') {
-            loginButton.disabled = false;
-            loginButton.textContent = 'Entrar';
-        }
     }
-});
-
-/* -------------------------
-   Exposição Global
-------------------------- */
-window.appModule = {
-    render,
-    setCurrentPage,
-    setCurrentSession,
-    handleLogin,
-    handleLogout,
-    supabaseClient,
-    changeAdminTab,
-    renderAdminContent
-};
+    else app.innerHTML = `<div>Página desconhecida</div>`;
+}
