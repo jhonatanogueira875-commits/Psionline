@@ -16,7 +16,8 @@ if (!supabaseClient) console.error("ERRO: Supabase não inicializado");
 let currentPage = "login";
 let currentAuthSession = null;
 let currentAdminTab = "dashboard";
-let currentAppointmentId = null; // Novo estado para armazenar o ID do agendamento sendo editado
+let currentAppointmentId = null; 
+let currentUserId = null; // Novo estado para armazenar o ID do usuário sendo editado
 
 /* -------------------------
    Utilitários de Navegação
@@ -24,11 +25,15 @@ let currentAppointmentId = null; // Novo estado para armazenar o ID do agendamen
 
 // Função para mudar a página e renderizar novamente
 function navigate(page, id = null) {
+    currentAppointmentId = null;
+    currentUserId = null;
+    
     if (page === 'edit_appointment' && id) {
         currentAppointmentId = id;
-    } else {
-        currentAppointmentId = null;
+    } else if (page === 'edit_profile' && id) {
+        currentUserId = id;
     }
+    
     currentPage = page;
     render();
 }
@@ -37,7 +42,6 @@ function navigate(page, id = null) {
    Autenticação básica
    ------------------------- */
 async function handleLogin(email, password) {
-  // ... (código da função handleLogin permanece inalterado) ...
     try {
         const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -52,7 +56,7 @@ function handleLogout() {
 }
 
 async function checkAdminRole(userId) {
-    // ... (código da função checkAdminRole permanece inalterado) ...
+    console.log(`Verificando status de administrador/ROLE para o ID: ${userId}`);
     try {
         const { data, error } = await supabaseClient
             .from('profiles')
@@ -85,7 +89,10 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
                 // Se não for admin, desloga (ou navega para uma página de erro/bloqueio)
                 handleLogout();
                 navigate('login');
-                alert("Acesso negado. Apenas administradores podem acessar este painel.");
+                // Substituído por modal ou mensagem de erro customizada em produção
+                console.error("Acesso negado. Apenas administradores podem acessar este painel.");
+                const app = document.getElementById('app');
+                if (app) app.innerHTML = `<div class="p-10 text-center text-red-700">Acesso negado. Você não é um administrador.</div>`;
             }
         }).catch(e => {
             console.error("Erro na checagem de role:", e);
@@ -98,7 +105,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
 
 
 /* ------------------------
-   API de Dados (Firestore)
+   API de Dados (Supabase)
    ------------------------ */
 
 // Busca dados para os cards do dashboard (total de usuários, agendamentos, etc.)
@@ -138,10 +145,8 @@ async function getDashboardCardsData() {
     return data;
 }
 
-// Busca dados para o gráfico de novos usuários por mês
+// Busca dados para o gráfico de novos usuários por mês (Mock)
 async function getNewUsersByMonth() {
-    // Implementação para contar novos perfis por mês (depende da coluna 'created_at' em 'profiles')
-    // Por simplicidade, retorna dados mockados por enquanto, mas o ideal é fazer a query
     return {
         labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'],
         data: [12, 19, 3, 5, 2, 3]
@@ -165,7 +170,7 @@ async function getAppointments() {
     }
 }
 
-// NOVO: Busca um único agendamento pelo ID
+// Busca um único agendamento pelo ID
 async function getAppointmentById(id) {
     try {
         const { data, error } = await supabaseClient
@@ -182,7 +187,7 @@ async function getAppointmentById(id) {
     }
 }
 
-// NOVO: Atualiza um agendamento
+// Atualiza um agendamento
 async function updateAppointment(id, updates) {
     try {
         const { data, error } = await supabaseClient
@@ -200,6 +205,76 @@ async function updateAppointment(id, updates) {
     }
 }
 
+// NOVO: Busca todos os usuários (perfis)
+async function getUsers() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .select('*')
+            .order('full_name', { ascending: true });
+
+        if (error) throw error;
+        return { data, error: null };
+    } catch (e) {
+        console.error("Erro ao buscar usuários:", e);
+        return { data: [], error: e };
+    }
+}
+
+// NOVO: Busca um único perfil pelo ID
+async function getProfileById(id) {
+    try {
+        // Nota: Não temos acesso direto ao email do auth.users, apenas ao profile.
+        // Assumimos que a tabela 'profiles' tem todas as informações necessárias,
+        // mas para o email, precisaríamos de uma View ou RLS configurada corretamente no Supabase.
+        // Para simplificar, vamos buscar o user e o profile.
+        
+        // 1. Busca o perfil
+        const { data: profileData, error: profileError } = await supabaseClient
+            .from('profiles')
+            .select('id, full_name, role')
+            .eq('id', id)
+            .single();
+        
+        if (profileError) throw profileError;
+
+        // 2. Busca o email na tabela 'auth.users' (REQUER RLS ESPECÍFICO DE ADMIN)
+        // Por não termos certeza das permissões de RLS, vamos retornar apenas o que
+        // está disponível na tabela 'profiles', e pedir ao usuário para adicionar o email
+        // ao perfil se for necessário a edição.
+        
+        // Simulação de busca do email (Apenas para demonstração, já que o Supabase RLS
+        // não permite acesso direto à tabela auth.users sem permissões elevadas).
+        // Vamos usar o ID como placeholder para o email se o campo não existir.
+        
+        // O campo 'email' não está em 'profiles' por padrão. Vamos pular a edição de email por RLS.
+
+        return { data: profileData, error: null };
+
+    } catch (e) {
+        console.error(`Erro ao buscar perfil ${id}:`, e);
+        return { data: null, error: e };
+    }
+}
+
+// NOVO: Atualiza um perfil
+async function updateProfile(id, updates) {
+    try {
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .update(updates)
+            .eq('id', id)
+            .select();
+
+        if (error) throw error;
+        console.log("Perfil atualizado com sucesso:", data);
+        return { data, error: null };
+    } catch (e) {
+        console.error(`Erro ao atualizar perfil ${id}:`, e);
+        return { data: null, error: e };
+    }
+}
+
 
 /* ------------------------
    Renderização dos Componentes
@@ -207,7 +282,6 @@ async function updateAppointment(id, updates) {
 
 // Renderiza o formulário de login (permanece inalterado)
 function renderLogin() {
-    // ... (código da função renderLogin permanece inalterado) ...
     return `
         <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
             <div class="max-w-md w-full space-y-8 p-10 bg-white rounded-xl shadow-2xl">
@@ -244,27 +318,37 @@ function renderLogin() {
     `;
 }
 
-// Renderiza o shell do Admin (permanece inalterado)
+// Renderiza o shell do Admin (permanece inalterado, mas agora o header reflete a página)
 function renderAdminShell() {
-    // ... (código da função renderAdminShell permanece inalterado) ...
+    let headerTitle = '';
+    if (currentPage === 'admin') {
+        headerTitle = currentAdminTab === 'dashboard' ? 'Dashboard' :
+                      currentAdminTab === 'users' ? 'Gestão de Usuários' :
+                      currentAdminTab === 'appointments' ? 'Gestão de Agendamentos' : '';
+    } else if (currentPage === 'edit_appointment') {
+        headerTitle = 'Editor de Agendamento';
+    } else if (currentPage === 'edit_profile') {
+        headerTitle = 'Editor de Perfil';
+    }
+
     return `
         <div class="min-h-screen flex font-sans bg-gray-50">
             <!-- Sidebar -->
             <div class="flex flex-col w-64 bg-indigo-800 text-white p-4 shadow-xl">
                 <div class="text-2xl font-bold mb-8">Psionline Admin</div>
                 <nav class="flex-grow">
-                    <a href="#" onclick="currentAdminTab='dashboard'; renderAdminContent(); return false;"
-                       class="flex items-center p-3 rounded-lg transition duration-150 ease-in-out ${currentAdminTab === 'dashboard' ? 'bg-indigo-700 font-semibold' : 'hover:bg-indigo-700'}">
+                    <a href="#" onclick="currentAdminTab='dashboard'; navigate('admin'); return false;"
+                       class="flex items-center p-3 rounded-lg transition duration-150 ease-in-out ${currentAdminTab === 'dashboard' && currentPage === 'admin' ? 'bg-indigo-700 font-semibold' : 'hover:bg-indigo-700'}">
                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l-2-2m2 2v10a1 1 0 00-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                        Dashboard
                     </a>
-                    <a href="#" onclick="currentAdminTab='users'; renderAdminContent(); return false;"
-                       class="flex items-center p-3 rounded-lg transition duration-150 ease-in-out mt-1 ${currentAdminTab === 'users' ? 'bg-indigo-700 font-semibold' : 'hover:bg-indigo-700'}">
+                    <a href="#" onclick="currentAdminTab='users'; navigate('admin'); return false;"
+                       class="flex items-center p-3 rounded-lg transition duration-150 ease-in-out mt-1 ${currentAdminTab === 'users' && currentPage === 'admin' ? 'bg-indigo-700 font-semibold' : 'hover:bg-indigo-700'}">
                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                        Usuários
                     </a>
-                    <a href="#" onclick="currentAdminTab='appointments'; renderAdminContent(); return false;"
-                       class="flex items-center p-3 rounded-lg transition duration-150 ease-in-out mt-1 ${currentAdminTab === 'appointments' ? 'bg-indigo-700 font-semibold' : 'hover:bg-indigo-700'}">
+                    <a href="#" onclick="currentAdminTab='appointments'; navigate('admin'); return false;"
+                       class="flex items-center p-3 rounded-lg transition duration-150 ease-in-out mt-1 ${currentAdminTab === 'appointments' && currentPage === 'admin' ? 'bg-indigo-700 font-semibold' : 'hover:bg-indigo-700'}">
                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                        Agendamentos
                     </a>
@@ -278,26 +362,109 @@ function renderAdminShell() {
             <!-- Conteúdo Principal -->
             <main id="admin-content-main" class="flex-grow p-6 sm:p-8 overflow-y-auto">
                 <header class="mb-6 pb-4 border-b border-gray-200">
-                    <h1 class="text-3xl font-bold text-gray-800">
-                        ${currentAdminTab === 'dashboard' ? 'Dashboard' :
-                          currentAdminTab === 'users' ? 'Gestão de Usuários' :
-                          currentAdminTab === 'appointments' ? 'Gestão de Agendamentos' : ''}
+                    <h1 class="text-3xl font-bold text-gray-800" id="header-title">
+                        ${headerTitle}
                     </h1>
                 </header>
-                <!-- O conteúdo específico será injetado aqui por renderAdminContent/renderAppointmentEditor -->
                 <div id="content-container">Carregando conteúdo...</div>
             </main>
         </div>
     `;
 }
 
+// Renderiza um card do dashboard (permanece inalterado)
+function renderCard(title, value, colorClass) {
+    return `
+        <div class="p-6 ${colorClass} text-white rounded-xl shadow-lg">
+            <p class="text-sm font-medium opacity-80">${title}</p>
+            <p class="text-4xl font-bold mt-2">${value}</p>
+        </div>
+    `;
+}
+
+// Renderiza a lista de Agendamentos (MODIFICADO para ser clicável)
+function renderAppointmentsList(appsResult) {
+    const apps = appsResult.data;
+    if (appsResult.error) {
+        return `<div class="p-4 text-red-700 bg-red-100 rounded-lg">Erro: ${appsResult.error.message}</div>`;
+    }
+    
+    if (apps.length === 0) {
+        return `<p class="text-gray-600 italic">Nenhum agendamento futuro encontrado.</p>`;
+    }
+
+    const list = apps.map(a => {
+        // Garantindo acesso aos dados do JOIN
+        const patient = Array.isArray(a.patient)?a.patient[0]:a.patient;
+        const psy = Array.isArray(a.psychologist)?a.psychologist[0]:a.psychologist;
+        const formattedDate = new Date(a.scheduled_date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+        
+        // Adiciona um evento onClick que chama navigate('edit_appointment', a.id)
+        return `
+            <li onclick="navigate('edit_appointment', '${a.id}')"
+                class="p-3 border border-gray-200 rounded-lg mb-2 cursor-pointer transition duration-150 ease-in-out hover:bg-indigo-50 hover:border-indigo-400">
+                <div class="font-semibold text-gray-800">${patient?.full_name||'Paciente'} - ${psy?.full_name||'Psicólogo'}</div>
+                <div class="text-sm text-gray-600 flex justify-between items-center">
+                    <span>${formattedDate}</span>
+                    <span class="text-xs font-medium text-indigo-600">EDITAR ></span>
+                </div>
+            </li>
+        `;
+    }).join('');
+    
+    return `<ul class="divide-y divide-gray-100">${list}</ul>`;
+}
+
+// Função para inicializar gráficos (requer Chart.js) (permanece inalterado)
+function renderChart(canvasId, labels, data, type, title) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    
+    // Destroi gráfico anterior se existir
+    if (window.chartInstances && window.chartInstances[canvasId]) {
+        window.chartInstances[canvasId].destroy();
+    }
+
+    const newChart = new Chart(ctx, {
+        type: type,
+        data: {
+            labels: labels,
+            datasets: [{
+                label: title,
+                data: data,
+                backgroundColor: type === 'bar' ? 'rgba(79, 70, 229, 0.7)' : 'rgba(99, 102, 241, 0.2)',
+                borderColor: type === 'line' ? 'rgb(99, 102, 241)' : 'rgba(79, 70, 229, 1)',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: type === 'line'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+
+    if (!window.chartInstances) window.chartInstances = {};
+    window.chartInstances[canvasId] = newChart;
+}
+
 // Renderiza o Dashboard (Cards e Gráficos)
 async function renderDashboardContent() {
-    // ... (código da função renderDashboardContent permanece inalterado) ...
     const container = document.getElementById('content-container');
     if (!container) return;
     
-    // Inicia a renderização do esqueleto
+    // Esqueleto de Carregamento
     container.innerHTML = `
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="p-6 bg-white rounded-xl shadow-lg animate-pulse h-32"></div>
@@ -350,100 +517,91 @@ async function renderDashboardContent() {
     renderChart('newUsersChart', chartData.labels, chartData.data, 'line', 'Novos Usuários');
 }
 
-// Renderiza um card do dashboard (permanece inalterado)
-function renderCard(title, value, colorClass) {
-    // ... (código da função renderCard permanece inalterado) ...
-    return `
-        <div class="p-6 ${colorClass} text-white rounded-xl shadow-lg">
-            <p class="text-sm font-medium opacity-80">${title}</p>
-            <p class="text-4xl font-bold mt-2">${value}</p>
+// Implementação para Gestão de Usuários
+async function renderUsersContent() {
+    const container = document.getElementById('content-container');
+    if (!container) return;
+
+    // Esqueleto de Carregamento
+    container.innerHTML = `
+        <div class="p-6 bg-white rounded-xl shadow-lg">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800">Todos os Usuários</h2>
+            <div class="space-y-3 animate-pulse">
+                <div class="h-10 bg-gray-200 rounded w-full"></div>
+                <div class="h-10 bg-gray-200 rounded w-full"></div>
+                <div class="h-10 bg-gray-200 rounded w-full"></div>
+            </div>
+        </div>
+    `;
+
+    const usersResult = await getUsers();
+    const users = usersResult.data;
+
+    if (usersResult.error) {
+        container.innerHTML = `<div class="p-4 text-red-700 bg-red-100 rounded-lg">Erro: ${usersResult.error.message}</div>`;
+        return;
+    }
+
+    if (users.length === 0) {
+        container.innerHTML = `<p class="text-gray-600 italic py-10 text-center">Nenhum usuário cadastrado.</p>`;
+        return;
+    }
+    
+    const tableRows = users.map(user => {
+        const isSelf = user.id === currentAuthSession?.user.id;
+        
+        return `
+            <tr class="border-b hover:bg-indigo-50 cursor-pointer" onclick="navigate('edit_profile', '${user.id}')">
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    ${user.full_name || 'Nome Não Informado'}
+                    ${isSelf ? '<span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Você</span>' : ''}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
+                    ${user.role}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <a href="#" onclick="event.stopPropagation(); navigate('edit_profile', '${user.id}'); return false;" class="text-indigo-600 hover:text-indigo-900">
+                        Editar
+                    </a>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="bg-white shadow-xl rounded-xl overflow-hidden">
+            <div class="p-6">
+                <h2 class="text-2xl font-bold mb-4 text-gray-800">Todos os Usuários (${users.length})</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Nome Completo
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Papel (Role)
+                            </th>
+                            <th scope="col" class="relative px-6 py-3">
+                                <span class="sr-only">Editar</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </div>
         </div>
     `;
 }
 
-// Renderiza a lista de Agendamentos (MODIFICADO para ser clicável)
-function renderAppointmentsList(appsResult) {
-    const apps = appsResult.data;
-    if (appsResult.error) {
-        return `<div class="p-4 text-red-700 bg-red-100 rounded-lg">Erro: ${appsResult.error.message}</div>`;
-    }
-    
-    if (apps.length === 0) {
-        return `<p class="text-gray-600 italic">Nenhum agendamento futuro encontrado.</p>`;
-    }
-
-    const list = apps.map(a => {
-        // Garantindo acesso aos dados do JOIN
-        const patient = Array.isArray(a.patient)?a.patient[0]:a.patient;
-        const psy = Array.isArray(a.psychologist)?a.psychologist[0]:a.psychologist;
-        const formattedDate = new Date(a.scheduled_date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-        
-        // NOVO: Adiciona um evento onClick que chama navigate('edit_appointment', a.id)
-        return `
-            <li onclick="navigate('edit_appointment', '${a.id}')"
-                class="p-3 border border-gray-200 rounded-lg mb-2 cursor-pointer transition duration-150 ease-in-out hover:bg-indigo-50 hover:border-indigo-400">
-                <div class="font-semibold text-gray-800">${patient?.full_name||'Paciente'} - ${psy?.full_name||'Psicólogo'}</div>
-                <div class="text-sm text-gray-600 flex justify-between items-center">
-                    <span>${formattedDate}</span>
-                    <span class="text-xs font-medium text-indigo-600">EDITAR ></span>
-                </div>
-            </li>
-        `;
-    }).join('');
-    
-    return `<ul class="divide-y divide-gray-100">${list}</ul>`;
-}
-
-// Função para inicializar gráficos (requer Chart.js) (permanece inalterado)
-function renderChart(canvasId, labels, data, type, title) {
-    // ... (código da função renderChart permanece inalterado) ...
-    const ctx = document.getElementById(canvasId);
-    if (!ctx) return;
-    
-    // Destroi gráfico anterior se existir
-    if (window.chartInstances && window.chartInstances[canvasId]) {
-        window.chartInstances[canvasId].destroy();
-    }
-
-    const newChart = new Chart(ctx, {
-        type: type,
-        data: {
-            labels: labels,
-            datasets: [{
-                label: title,
-                data: data,
-                backgroundColor: type === 'bar' ? 'rgba(79, 70, 229, 0.7)' : 'rgba(99, 102, 241, 0.2)',
-                borderColor: type === 'line' ? 'rgb(99, 102, 241)' : 'rgba(79, 70, 229, 1)',
-                borderWidth: 2,
-                tension: 0.4,
-                fill: type === 'line'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false
-                }
-            }
-        }
-    });
-
-    if (!window.chartInstances) window.chartInstances = {};
-    window.chartInstances[canvasId] = newChart;
-}
-
-// NOVO: Renderiza a tela de edição de agendamento
+// Renderiza a tela de edição de agendamento (Permanece a mesma)
 async function renderAppointmentEditor() {
     const container = document.getElementById('content-container');
     if (!container || !currentAppointmentId) {
-        navigate('admin'); // Volta para o dashboard se não houver ID
+        navigate('admin'); 
         return;
     }
     
@@ -476,8 +634,10 @@ async function renderAppointmentEditor() {
     }
 
     // Nomes e IDs
-    const patientName = appointment.patient?.full_name || 'Paciente Não Encontrado';
-    const psyName = appointment.psychologist?.full_name || 'Psicólogo Não Encontrado';
+    const patient = Array.isArray(appointment.patient)?appointment.patient[0]:appointment.patient;
+    const psy = Array.isArray(appointment.psychologist)?appointment.psychologist[0]:appointment.psychologist;
+    const patientName = patient?.full_name || 'Paciente Não Encontrado';
+    const psyName = psy?.full_name || 'Psicólogo Não Encontrado';
     
     // Formata a data e hora para os inputs HTML
     const scheduledDate = new Date(appointment.scheduled_date);
@@ -545,7 +705,7 @@ async function renderAppointmentEditor() {
     `;
 }
 
-// NOVO: Função para lidar com a submissão do formulário de atualização
+// Função para lidar com a submissão do formulário de atualização de agendamento (Permanece a mesma)
 async function handleAppointmentUpdate() {
     const form = document.getElementById('appointment-editor-form');
     const updateButton = document.getElementById('update-button');
@@ -600,6 +760,153 @@ async function handleAppointmentUpdate() {
 }
 
 
+// NOVO: Renderiza a tela de edição de Perfil
+async function renderProfileEditor() {
+    const container = document.getElementById('content-container');
+    if (!container || !currentUserId) {
+        navigate('admin'); // Volta se não houver ID
+        return;
+    }
+    
+    // Esqueleto de Carregamento
+    container.innerHTML = `
+        <div class="max-w-xl mx-auto p-6 bg-white rounded-xl shadow-lg">
+            <h2 class="text-2xl font-bold mb-6 text-gray-800">Carregando Perfil...</h2>
+            <div class="space-y-4 animate-pulse">
+                <div class="h-8 bg-gray-200 rounded w-3/4"></div>
+                <div class="h-8 bg-gray-200 rounded w-full"></div>
+                <div class="h-10 bg-gray-200 rounded"></div>
+            </div>
+        </div>
+    `;
+
+    const result = await getProfileById(currentUserId);
+    const profile = result.data;
+    
+    if (result.error || !profile) {
+        container.innerHTML = `
+            <div class="max-w-xl mx-auto p-6 bg-red-100 border border-red-400 text-red-700 rounded-xl shadow-lg">
+                <p class="font-bold">Erro ao Carregar Perfil</p>
+                <p>${result.error ? result.error.message : 'Dados não encontrados.'}</p>
+                <button onclick="navigate('admin')" class="mt-4 text-indigo-600 hover:text-indigo-800 font-medium">
+                    Voltar aos Usuários
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    // Papéis disponíveis
+    const roles = ['admin', 'psychologist', 'patient'];
+    const isSelf = profile.id === currentAuthSession?.user.id;
+    const warningText = isSelf 
+        ? "⚠️ Cuidado ao mudar seu próprio papel (role)! Isso pode bloquear seu acesso ao painel." 
+        : "";
+
+    // Monta o formulário de Edição
+    container.innerHTML = `
+        <div class="max-w-xl mx-auto p-8 bg-white rounded-xl shadow-2xl">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h2 class="text-3xl font-bold text-indigo-700">Editar Perfil</h2>
+                <button onclick="currentAdminTab='users'; navigate('admin');" class="text-gray-500 hover:text-gray-800 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            ${warningText ? `<div class="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-lg text-sm font-medium">${warningText}</div>` : ''}
+
+            <form id="profile-editor-form" onsubmit="event.preventDefault(); handleProfileUpdate('${profile.id}');">
+                <!-- Campo Nome Completo -->
+                <div class="mb-4">
+                    <label for="full_name" class="block text-sm font-medium text-gray-700 mb-1">Nome Completo:</label>
+                    <input type="text" id="full_name" name="full_name" value="${profile.full_name || ''}" required
+                        class="mt-1 block w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+
+                <!-- Campo Papel (Role) -->
+                <div class="mb-6">
+                    <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Papel (Role):</label>
+                    <select id="role" name="role" required
+                        class="mt-1 block w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        ${roles.map(r => `
+                            <option value="${r}" ${profile.role === r ? 'selected' : ''}>
+                                ${r.charAt(0).toUpperCase() + r.slice(1)}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+
+                <!-- Mensagem de Status -->
+                <p id="update-profile-message" class="text-center text-sm font-medium mb-4"></p>
+
+                <!-- Botão de Ação -->
+                <button type="submit" id="update-profile-button" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                    Salvar Alterações do Perfil
+                </button>
+            </form>
+        </div>
+    `;
+}
+
+// NOVO: Função para lidar com a submissão do formulário de atualização de perfil
+async function handleProfileUpdate(userId) {
+    const form = document.getElementById('profile-editor-form');
+    const updateButton = document.getElementById('update-profile-button');
+    const message = document.getElementById('update-profile-message');
+
+    if (!form || !userId) return;
+
+    // Desabilitar o botão e mostrar carregamento
+    updateButton.disabled = true;
+    updateButton.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Salvando...
+    `;
+    message.className = 'text-center text-sm font-medium mb-4 text-gray-500';
+    message.innerText = 'Processando...';
+
+    const newFullName = form.querySelector('#full_name').value;
+    const newRole = form.querySelector('#role').value;
+    
+    const updates = {
+        full_name: newFullName,
+        role: newRole
+    };
+
+    const { error } = await updateProfile(userId, updates);
+
+    if (error) {
+        message.className = 'text-center text-sm font-medium mb-4 text-red-600';
+        message.innerText = `Erro ao salvar: ${error.message}`;
+    } else {
+        message.className = 'text-center text-sm font-medium mb-4 text-green-600';
+        message.innerText = '✅ Perfil atualizado com sucesso!';
+        
+        // Se o usuário mudou o próprio role de 'admin' para outra coisa, desloga
+        if (userId === currentAuthSession?.user.id && newRole !== 'admin') {
+            setTimeout(() => {
+                handleLogout(); // O listener de auth se encarrega do resto
+            }, 1000);
+        } else {
+             // Opcional: Voltar para a lista de usuários após um pequeno atraso
+            setTimeout(() => {
+                currentAdminTab = 'users';
+                navigate('admin');
+            }, 1500);
+        }
+    }
+
+    // Reabilitar o botão se não houve navegação
+    if (currentPage === 'edit_profile') {
+        updateButton.disabled = false;
+        updateButton.innerHTML = 'Salvar Alterações do Perfil';
+    }
+}
+
+
 // Função para renderizar o conteúdo específico do Admin
 function renderAdminContent() {
     const container = document.getElementById('content-container');
@@ -619,24 +926,36 @@ function renderAdminContent() {
             renderDashboardContent();
         }
     } else if (currentAdminTab === 'users') {
-        container.innerHTML = `<div class="text-center py-20 text-gray-500 text-xl">
-                                  🚧 Gestão de Usuários em construção 🚧
-                                  <p class="mt-2 text-base">Este será o próximo passo!</p>
-                               </div>`;
+        renderUsersContent(); // Nova função para listar usuários
     } else if (currentAdminTab === 'appointments') {
-        // Por enquanto, apenas mostra a lista completa (ou algo similar)
+        // Para a aba de agendamentos (ainda em construção, mas agora separa o conteúdo)
         container.innerHTML = `<div class="text-center py-20 text-gray-500 text-xl">
-                                  🚧 Gestão de Agendamentos (Tabela) em construção 🚧
+                                  🚧 Gestão de Agendamentos (Tabela Completa) em construção 🚧
+                                  <p class="mt-2 text-base">A lista completa virá aqui!</p>
                                </div>`;
     } else {
         container.innerHTML = `<p class="text-center py-20 text-red-500">Aba desconhecida.</p>`;
     }
 }
 
-// NOVO: Adicionamos a lógica de navegação para a página de edição no render principal
+// Adicionamos a lógica de navegação para a página de edição de perfil no render principal
 function render() {
   const app = document.getElementById('app');
   if (!app) return console.error("#app não encontrado");
+
+  // Atualiza o título do cabeçalho
+  const header = document.getElementById('header-title');
+  if (header) {
+      if (currentPage === 'edit_appointment') {
+          header.innerText = 'Editor de Agendamento';
+      } else if (currentPage === 'edit_profile') {
+          header.innerText = 'Editor de Perfil';
+      } else if (currentPage === 'admin') {
+          header.innerText = currentAdminTab === 'dashboard' ? 'Dashboard' :
+                             currentAdminTab === 'users' ? 'Gestão de Usuários' :
+                             currentAdminTab === 'appointments' ? 'Gestão de Agendamentos' : '';
+      }
+  }
   
   if (currentPage === 'login') { 
     app.innerHTML = renderLogin(); 
@@ -652,18 +971,9 @@ function render() {
   
   if (currentPage === 'edit_appointment') {
     app.innerHTML = renderAdminShell();
-    // Muda o cabeçalho para refletir o editor
-    document.getElementById('admin-content-main').querySelector('header h1').innerText = 'Editor de Agendamento';
-    // Carrega o editor
     setTimeout(renderAppointmentEditor, 0); 
     return;
   }
   
-  app.innerHTML = "<p>Página desconhecida</p>";
-}
-
-/* -------------------------
-   Inicialização
-   ------------------------- */
-// A renderização inicial é controlada pelo listener de auth no topo do arquivo.
-// O render() inicial é chamado em index.html após o DOM/scripts carregarem.
+  if (currentPage === 'edit_profile') {
+    app.innerHTML = renderAdminShell();
