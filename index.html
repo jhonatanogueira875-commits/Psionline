@@ -14,6 +14,8 @@
         .btn-primary:hover { background-color: #667eea; }
         .btn-secondary { background-color: #e5e7eb; color: #1f2937; transition: background-color 0.3s; }
         .btn-secondary:hover { background-color: #d1d5db; }
+        .btn-mock { background-color: #4ade80; color: #10171d; transition: background-color 0.3s; }
+        .btn-mock:hover { background-color: #34d399; }
         .input-field { border: 1px solid #d1d5db; padding: 0.75rem; border-radius: 0.5rem; width: 100%; transition: border-color 0.3s; }
         .input-field:focus { border-color: #4c51bf; outline: none; box-shadow: 0 0 0 3px rgba(76, 81, 191, 0.3); }
         /* CRÍTICO: Garante que a tela de carregamento cubra tudo */
@@ -61,11 +63,24 @@
 
             <div class="space-y-4">
                 <button onclick="showView('registration-patient-view')" class="btn-primary w-full py-3 rounded-xl text-lg font-semibold shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Sou Paciente
+                    Sou Paciente (Cadastro)
                 </button>
                 <button onclick="showView('registration-psychologist-view')" class="btn-primary w-full py-3 rounded-xl text-lg font-semibold shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Sou Psicólogo(a)
+                    Sou Psicólogo(a) (Cadastro)
                 </button>
+                
+                <!-- NOVOS BOTÕES DE LOGIN RÁPIDO (MOCK) -->
+                <div id="mock-login-buttons" class="mt-6 pt-4 border-t border-dashed" style="display: none;">
+                     <p class="text-sm text-red-500 mb-4 font-semibold">
+                        Modo de Simulação: Acesso Rápido
+                    </p>
+                    <button onclick="simulateLogin('patient')" class="btn-mock w-full py-2 rounded-xl text-md font-semibold focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
+                        Login Rápido (Paciente)
+                    </button>
+                    <button onclick="simulateLogin('psychologist')" class="btn-mock w-full py-2 mt-2 rounded-xl text-md font-semibold focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
+                        Login Rápido (Psicólogo)
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -262,6 +277,9 @@
             
             // Se estiver em modo mock, mostra os avisos de simulação
             if (isMockMode) {
+                // Mostra os botões de login rápido (só na tela de seleção)
+                document.getElementById('mock-login-buttons').style.display = viewId === 'role-selection-view' ? 'block' : 'none';
+
                 document.getElementById('patient-mock-warning').style.display = viewId === 'registration-patient-view' ? 'block' : 'none';
                 document.getElementById('psychologist-mock-warning').style.display = viewId === 'registration-psychologist-view' ? 'block' : 'none';
                 document.getElementById('patient-view-mock-warning').style.display = viewId === 'patient-diary-view' ? 'block' : 'none';
@@ -396,11 +414,25 @@
                 showView('role-selection-view');
             }
         }
+        
+        // NOVO: Função para simular o login rápido (apenas mock mode)
+        window.simulateLogin = function(role) {
+            if (!isMockMode) {
+                 console.error("Simulação de login só está disponível no Modo Mock.");
+                 return;
+            }
+            
+            // Simula o registro e roteia
+            registerUser(new Event('submit'), role);
+        }
 
         // --- Funções de Cadastro (Registro) ---
 
         async function registerUser(event, role) {
-            event.preventDefault();
+            // Previne o comportamento padrão do submit, a menos que seja um evento simulado
+            if (event && event.preventDefault) {
+                event.preventDefault();
+            }
             
             if (isMockMode) {
                 // --- LÓGICA DE SIMULAÇÃO (MOCK) ---
@@ -410,7 +442,6 @@
                 if (role === 'patient') {
                     document.getElementById('display-patient-id').textContent = userId;
                     showView('patient-diary-view');
-                    // Não inicia o listener de humor no modo mock, pois não há DB
                     
                     // Exibe um registro de humor simulado para mostrar a tela
                     renderMoodEntries([{
@@ -506,20 +537,26 @@
 
             if (isMockMode) {
                 console.warn(`[MOCK MODE] Registro de humor simulado (Nível: ${moodLevelInput.value}, Notas: "${moodNotes}")`);
-                // Limpa o formulário e exibe o registro simulado (não persistente)
+                
+                // Limpa o formulário 
                 document.getElementById('mood-diary-form').reset();
                 moodLevelInput.value = '';
                 document.querySelectorAll('.mood-selector-btn').forEach(btn => btn.classList.remove('selected'));
                 
-                // Apenas adiciona o registro simulado à lista temporária
-                const tempMoods = [{
+                // Adiciona o novo registro simulado à lista
+                const newMood = {
                     id: crypto.randomUUID(),
                     level: parseInt(selectedMood, 10),
                     notes: moodNotes,
                     timestamp: new Date()
-                }];
-                renderMoodEntries(tempMoods);
+                };
+                
+                // Recarrega todos os mocks (adicionando o novo)
+                let existingMocks = JSON.parse(localStorage.getItem('mockMoods') || '[]');
+                existingMocks.unshift(newMood); // Adiciona no início
+                localStorage.setItem('mockMoods', JSON.stringify(existingMocks));
 
+                renderMoodEntries(existingMocks);
                 return;
             }
 
@@ -580,28 +617,28 @@
         // Função para renderizar os registros
         function renderMoodEntries(moods) {
             const moodList = document.getElementById('mood-list');
-            // No modo mock, apenas exibimos o último registro, sem limpar a lista
-            if (!isMockMode) {
-                 moodList.innerHTML = '';
+            moodList.innerHTML = ''; // Limpa a lista para re-renderizar
+
+            // Se for mock mode, mas a lista estiver vazia, verifica o localStorage
+            if (isMockMode && moods.length === 0) {
+                 moods = JSON.parse(localStorage.getItem('mockMoods') || '[]');
             }
            
-            
             if (moods.length === 0) {
                 document.getElementById('no-mood-records').style.display = 'block';
                 return;
             }
             document.getElementById('no-mood-records').style.display = 'none';
 
-            // No modo mock, só renderiza o primeiro elemento (o mais recente)
-            const entriesToRender = isMockMode ? moods.slice(0, 1) : moods;
+            // Pega apenas os 10 mais recentes para evitar poluição da tela
+            const entriesToRender = isMockMode ? moods.slice(0, 10) : moods;
             
-            // Se estiver em modo mock, limpa a lista de humor antes de adicionar o novo mock
-            if (isMockMode) {
-                 moodList.innerHTML = '';
-            }
 
             entriesToRender.forEach(mood => {
-                const dateString = mood.timestamp.toLocaleDateString('pt-BR', {
+                // Converte Firestore Timestamp ou Date para objeto Date
+                const entryDate = mood.timestamp instanceof Date ? mood.timestamp : new Date(mood.timestamp.seconds * 1000);
+
+                const dateString = entryDate.toLocaleDateString('pt-BR', {
                     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
                 });
                 
@@ -615,7 +652,7 @@
                 
                 const { emoji, text, color } = styleMap[mood.level] || { emoji: '❓', text: 'Desconhecido', color: 'bg-gray-200 text-gray-600 border-gray-300' };
                 
-                const isMockText = isMockMode ? '<span class="text-red-500 text-xs">(SIMULADO)</span>' : '';
+                const isMockText = isMockMode ? '<span class="text-red-500 text-xs ml-2">(SIMULADO)</span>' : '';
 
                 const entryDiv = document.createElement('div');
                 entryDiv.className = `card p-4 flex justify-between items-center border-l-4 ${color.split(' ').pop()}`;
@@ -623,15 +660,14 @@
                     <div class="flex items-center">
                         <span class="text-3xl mr-3">${emoji}</span>
                         <div>
-                            <span class="font-semibold text-lg">${text} ${isMockText}</span>
+                            <span class="font-semibold text-lg flex items-center">${text} ${isMockText}</span>
                             <p class="text-xs text-gray-500">${dateString}</p>
                         </div>
                     </div>
                     <span class="text-sm text-gray-600 truncate max-w-xs ml-4">${mood.notes || 'Nenhuma nota.'}</span>
                 `;
                 
-                // Adiciona o novo registro (ou substitui o único mock)
-                moodList.prepend(entryDiv);
+                moodList.appendChild(entryDiv); // Adiciona no final para manter a ordem decrescente (mais recente em cima)
             });
         }
 
@@ -640,6 +676,7 @@
             if (isMockMode) {
                  console.warn("[MOCK MODE] Simulação de logout. Redirecionando para a seleção de perfil.");
                  userRole = null;
+                 localStorage.removeItem('mockMoods'); // Limpa os dados simulados
                  showView('role-selection-view');
                  return;
             }
