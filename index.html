@@ -3,137 +3,418 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Projeto Consolidado: Interface Principal</title>
+    <title>Dashboard do Psicólogo - PsicoConnect</title>
     <!-- Carrega o Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Define a fonte Inter como padrão para a página */
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6; /* Cinza claro para o fundo */
+            background-color: #f8fafc; /* Fundo suave */
         }
-        .card-shadow {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        /* Estilos para o ícone de hambúrguer */
+        .sidebar-toggle-btn {
+            z-index: 50; /* Garante que o botão fique sobreposto */
+        }
+        /* Estilos para a Sidebar */
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+            z-index: 40;
+            /* No mobile, ela deve estar escondida fora da tela */
+            transform: translateX(-100%);
+        }
+        /* Estilo para mostrar a Sidebar (usado via JS) */
+        #sidebar.open {
+            transform: translateX(0);
+        }
+        /* Camada de sobreposição para mobile */
+        #overlay {
+            z-index: 30;
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col antialiased">
+<body>
 
-    <!-- Cabeçalho (Header) Fixo e Responsivo -->
-    <header class="bg-indigo-600 shadow-lg sticky top-0 z-10">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-white tracking-wider">
-                <i class="fas fa-rocket mr-2"></i> Projeto Alpha
-            </h1>
-            <!-- Menu de Navegação - Escondido em Mobile, Visível em Desktop -->
-            <nav class="hidden md:flex space-x-6">
-                <a href="#" class="text-white hover:text-indigo-200 transition duration-150 ease-in-out font-medium">Início</a>
-                <a href="#" class="text-white hover:text-indigo-200 transition duration-150 ease-in-out font-medium">Recursos</a>
-                <a href="#" class="text-white hover:text-indigo-200 transition duration-150 ease-in-out font-medium">Sobre</a>
-                <a href="#" class="text-white bg-indigo-700 px-3 py-1 rounded-full hover:bg-indigo-800 transition duration-150 ease-in-out font-medium">Login</a>
-            </nav>
-            <!-- Botão de Menu para Mobile -->
-            <button id="mobile-menu-btn" class="text-white md:hidden p-2 rounded-md hover:bg-indigo-700 transition duration-150">
-                <!-- Ícone de hambúrguer (substitua por um ícone de sua preferência se for usar uma biblioteca) -->
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
-            </button>
-        </div>
-        <!-- Menu Mobile Expansível (oculto por padrão) -->
-        <div id="mobile-menu" class="hidden md:hidden bg-indigo-700 pb-2">
-            <a href="#" class="block px-4 py-2 text-white hover:bg-indigo-600 transition duration-150">Início</a>
-            <a href="#" class="block px-4 py-2 text-white hover:bg-indigo-600 transition duration-150">Recursos</a>
-            <a href="#" class="block px-4 py-2 text-white hover:bg-indigo-600 transition duration-150">Sobre</a>
-            <a href="#" class="block px-4 py-2 text-white bg-indigo-800 mt-1 mx-2 rounded-lg text-center transition duration-150">Login</a>
-        </div>
-    </header>
+<!-- Configuração e Importações do Firebase -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, query, where, onSnapshot, doc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    <!-- Conteúdo Principal Flexível -->
-    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div class="text-center mb-10">
-            <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl lg:text-6xl mb-4">
-                Boas-vindas ao Nosso Projeto
-            </h2>
-            <p class="text-xl text-gray-600 max-w-3xl mx-auto">
-                Esta é a interface principal consolidada, organizada e pronta para o próximo estágio de desenvolvimento.
-            </p>
-        </div>
+    // Variáveis Globais do Ambiente (Obrigatórias)
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        <!-- Seção de Cartões (Grid Responsivo) -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <!-- Cartão 1 -->
-            <div class="bg-white p-6 rounded-xl card-shadow transition transform hover:scale-[1.02] duration-300">
-                <div class="text-indigo-600 mb-4">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                </div>
-                <h3 class="text-xl font-semibold text-gray-900 mb-3">Código Limpo</h3>
-                <p class="text-gray-500">Apenas o código essencial e consolidado está presente neste arquivo, eliminando rascunhos antigos.</p>
-            </div>
-            <!-- Cartão 2 -->
-            <div class="bg-white p-6 rounded-xl card-shadow transition transform hover:scale-[1.02] duration-300">
-                <div class="text-indigo-600 mb-4">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                </div>
-                <h3 class="text-xl font-semibold text-gray-900 mb-3">Design Responsivo</h3>
-                <p class="text-gray-500">O layout se adapta perfeitamente a dispositivos móveis, tablets e desktops graças ao Tailwind.</p>
-            </div>
-            <!-- Cartão 3 -->
-            <div class="bg-white p-6 rounded-xl card-shadow transition transform hover:scale-[1.02] duration-300">
-                <div class="text-indigo-600 mb-4">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 0a9 9 0 01-9-9m9 9v9m-4.5-1.5a4.5 4.5 0 000-9M12 21a9 9 0 009-9m-9 9a9 9 0 01-9-9m9 9v-9"></path></svg>
-                </div>
-                <h3 class="text-xl font-semibold text-gray-900 mb-3">Próxima Etapa</h3>
-                <p class="text-gray-500">Estamos prontos para adicionar lógica mais complexa ou integração com APIs/dados persistentes.</p>
-            </div>
-        </div>
+    setLogLevel('Debug');
+    
+    let app, db, auth;
+    let userId = null;
+    let isAuthReady = false;
 
-        <!-- Seção de Ação (Call to Action) -->
-        <div class="mt-16 bg-white p-8 rounded-xl card-shadow text-center">
-            <h3 class="text-2xl font-bold text-indigo-700 mb-4">O que faremos a seguir?</h3>
-            <p class="text-gray-600 mb-6">Agora que a estrutura está limpa, podemos focar na funcionalidade. Qual é o próximo recurso que deseja implementar?</p>
-            <button onclick="console.log('Botão de Ação Clicado')" class="bg-indigo-600 text-white px-6 py-3 rounded-full font-bold text-lg hover:bg-indigo-700 transition duration-300 transform hover:scale-105">
-                Começar a Funcionalidade
-            </button>
-        </div>
-    </main>
-
-    <!-- Rodapé (Footer) -->
-    <footer class="bg-gray-800 mt-12">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div class="flex flex-col md:flex-row justify-between items-center text-center md:text-left text-gray-400">
-                <p>&copy; 2025 Projeto Alpha. Todos os direitos reservados.</p>
-                <div class="mt-4 md:mt-0 space-x-4">
-                    <a href="#" class="hover:text-white transition duration-150">Termos de Serviço</a>
-                    <span class="text-gray-600">|</span>
-                    <a href="#" class="hover:text-white transition duration-150">Política de Privacidade</a>
-                </div>
-            </div>
-        </div>
-    </footer>
-
-    <!-- JavaScript para o Menu Mobile -->
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const menuBtn = document.getElementById('mobile-menu-btn');
-            const mobileMenu = document.getElementById('mobile-menu');
-
-            if (menuBtn && mobileMenu) {
-                menuBtn.addEventListener('click', () => {
-                    mobileMenu.classList.toggle('hidden');
-                });
+    // Inicialização do Firebase
+    try {
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // Função para autenticar
+            async function authenticate() {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Autenticação com token personalizado bem-sucedida.");
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log("Autenticação anônima bem-sucedida.");
+                    }
+                } catch (error) {
+                    console.error("Erro na autenticação inicial:", error);
+                    showMessage(`Falha na autenticação inicial. Recarregue a página.`, 'error');
+                }
             }
+
+            // Listener de estado de autenticação
+            onAuthStateChanged(auth, (user) => {
+                isAuthReady = true;
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('user-uid').textContent = userId;
+                    document.getElementById('auth-status').textContent = 'Autenticado';
+                    document.getElementById('auth-status').classList.add('text-green-500');
+                    document.getElementById('auth-status').classList.remove('text-red-500');
+                    // Inicia o carregamento dos dados após a autenticação
+                    loadPatients();
+                } else {
+                    userId = null;
+                    document.getElementById('user-uid').textContent = 'N/A';
+                    document.getElementById('auth-status').textContent = 'Não Autenticado';
+                    document.getElementById('auth-status').classList.add('text-red-500');
+                    document.getElementById('auth-status').classList.remove('text-green-500');
+                }
+            });
+
+            authenticate();
+
+        } else {
+            console.error("Configuração do Firebase vazia.");
+            showMessage('Erro: Firebase não configurado. Dados não serão carregados.', 'error');
+        }
+    } catch (e) {
+        console.error("Erro ao inicializar o Firebase:", e);
+        showMessage('Erro: Falha ao iniciar o aplicativo.', 'error');
+    }
+
+    // --- FUNÇÕES DE LÓGICA DO DASHBOARD ---
+
+    /**
+     * Função para exibir mensagens na caixa de status/erro.
+     * @param {string} message - A mensagem a ser exibida.
+     * @param {string} type - 'success', 'error', 'info'.
+     */
+    function showMessage(message, type = 'info') {
+        const box = document.getElementById('notification-box');
+        box.textContent = message;
+        box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm transition-opacity duration-300';
+        
+        if (type === 'error') {
+            box.classList.add('bg-red-500', 'text-white');
+        } else if (type === 'success') {
+            box.classList.add('bg-green-500', 'text-white');
+        } else {
+            box.classList.add('bg-indigo-500', 'text-white');
+        }
+        
+        box.classList.remove('hidden');
+        setTimeout(() => {
+            box.classList.add('hidden');
+        }, 5000);
+    }
+
+    /**
+     * Carrega e monitora os pacientes associados a este psicólogo.
+     */
+    function loadPatients() {
+        // Interrompe se a autenticação não estiver pronta ou userId não estiver disponível
+        if (!isAuthReady || !userId || !db) return;
+
+        console.log(`Buscando pacientes para o psicólogo: ${userId}`);
+        
+        // Caminho da Coleção para dados públicos de pacientes associados ao psicólogo
+        // /artifacts/{appId}/public/data/patients
+        const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+        
+        // Consulta: Filtra pacientes onde o campo 'psychologistId' é igual ao ID do usuário logado.
+        const q = query(patientsRef, where("psychologistId", "==", userId));
+
+        const patientsListEl = document.getElementById('patients-list');
+        patientsListEl.innerHTML = '<p class="text-center text-gray-500 mt-4">Carregando pacientes...</p>';
+
+        // Monitora em tempo real a coleção
+        onSnapshot(q, (snapshot) => {
+            const patients = [];
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                patients.push({ id: doc.id, ...data });
+            });
+
+            renderPatients(patients);
+        }, (error) => {
+            console.error("Erro ao carregar pacientes:", error);
+            showMessage("Erro ao carregar a lista de pacientes.", 'error');
+            patientsListEl.innerHTML = '<p class="text-center text-red-500 mt-4">Falha ao carregar dados.</p>';
+        });
+    }
+
+    /**
+     * Renderiza a lista de pacientes na interface.
+     * @param {Array<Object>} patients - Lista de objetos de pacientes.
+     */
+    function renderPatients(patients) {
+        const patientsListEl = document.getElementById('patients-list');
+        patientsListEl.innerHTML = ''; // Limpa a lista existente
+
+        if (patients.length === 0) {
+            patientsListEl.innerHTML = '<p class="text-center text-gray-500 mt-4">Nenhum paciente encontrado. Adicione um novo paciente.</p>';
+            return;
+        }
+
+        patients.forEach(patient => {
+            const lastSession = patient.lastSessionDate ? new Date(patient.lastSessionDate).toLocaleDateString() : 'N/A';
+            
+            const item = document.createElement('div');
+            item.className = 'flex justify-between items-center p-4 mb-3 bg-white rounded-xl shadow-sm hover:shadow-md transition duration-200 border border-gray-100';
+            item.innerHTML = `
+                <div>
+                    <p class="text-lg font-semibold text-gray-800">${patient.name || 'Paciente Sem Nome'}</p>
+                    <p class="text-sm text-gray-500">ID: ${patient.id}</p>
+                    <p class="text-xs text-gray-400">Última Sessão: ${lastSession}</p>
+                </div>
+                <button onclick="viewPatient('${patient.id}', '${patient.name}')" class="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 bg-indigo-50 rounded-full transition duration-150">
+                    Ver Perfil
+                </button>
+            `;
+            patientsListEl.appendChild(item);
+        });
+    }
+
+    /**
+     * Função de visualização de paciente (simulação).
+     * @param {string} id - ID do paciente.
+     * @param {string} name - Nome do paciente.
+     */
+    window.viewPatient = function(id, name) {
+        showMessage(`Visualizando perfil de ${name} (ID: ${id}).`, 'info');
+        console.log(`Ação: Abrir perfil do paciente ID: ${id}`);
+        // Aqui, a lógica real abriria um modal ou navegaria para a página de detalhes do paciente.
+    }
+
+    /**
+     * Função para abrir o modal de adicionar paciente.
+     */
+    window.openAddPatientModal = function() {
+        document.getElementById('modal-backdrop').classList.remove('hidden');
+        document.getElementById('add-patient-modal').classList.remove('hidden');
+    }
+
+    /**
+     * Função para fechar o modal.
+     */
+    window.closeModal = function() {
+        document.getElementById('modal-backdrop').classList.add('hidden');
+        document.getElementById('add-patient-modal').classList.add('hidden');
+        document.getElementById('new-patient-form').reset(); // Limpa o formulário
+    }
+
+    /**
+     * Adiciona um novo paciente (simulação).
+     */
+    document.getElementById('new-patient-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!userId || !db) {
+            showMessage("Erro de autenticação/Firebase. Tente novamente.", 'error');
+            return;
+        }
+
+        const name = document.getElementById('patient-name').value;
+        const email = document.getElementById('patient-email').value;
+        const btn = document.getElementById('add-patient-btn');
+
+        btn.textContent = 'Salvando...';
+        btn.disabled = true;
+
+        try {
+            // Cria um novo documento de paciente
+            const newPatientData = {
+                name: name,
+                email: email,
+                psychologistId: userId, // Liga o paciente ao psicólogo logado
+                createdAt: Date.now(),
+                lastSessionDate: Date.now(),
+                status: 'active'
+            };
+            
+            // Adiciona o documento na coleção pública 'patients'
+            // /artifacts/{appId}/public/data/patients
+            const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+            await setDoc(doc(patientsRef), newPatientData); // Usando setDoc com doc() sem ID para gerar um ID automático
+
+            showMessage(`Paciente "${name}" adicionado com sucesso!`, 'success');
+            window.closeModal();
+
+        } catch (error) {
+            console.error("Erro ao adicionar paciente:", error);
+            showMessage(`Erro ao adicionar paciente: ${error.message}`, 'error');
+        } finally {
+            btn.textContent = 'Adicionar Paciente';
+            btn.disabled = false;
+        }
+    });
+
+    // --- LÓGICA DE INTERFACE ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('overlay');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('hidden');
         });
 
-        // Adicione aqui qualquer outro script JavaScript essencial que você precisar.
+        overlay.addEventListener('click', () => {
+            sidebar.classList.remove('open');
+            overlay.classList.add('hidden');
+        });
+    });
 
-        /**
-         * Função de utilidade para mostrar mensagens (Substitui alert())
-         * @param {string} message - A mensagem a ser exibida.
-         */
-        function showMessage(message) {
-            console.log("Mensagem para o usuário: " + message);
-            // Em uma aplicação real, você mostraria um modal ou toast aqui.
-        }
-    </script>
+</script>
+
+<!-- Barra Lateral (Sidebar) para Navegação -->
+<div id="sidebar" class="fixed inset-y-0 left-0 w-64 bg-white shadow-xl lg:translate-x-0 lg:static lg:inset-auto lg:shadow-none p-6 flex flex-col border-r border-gray-200">
+    <div class="flex items-center justify-between lg:justify-start mb-10">
+        <h2 class="text-3xl font-extrabold text-indigo-700">Psico<span class="text-gray-900">Connect</span></h2>
+        <!-- Botão de Fechar para Mobile -->
+        <button id="sidebar-close" onclick="document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay').classList.add('hidden');" class="text-gray-500 hover:text-gray-700 lg:hidden p-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+    </div>
+
+    <!-- Navegação Principal -->
+    <nav class="flex-grow">
+        <a href="#" class="flex items-center p-3 text-sm font-semibold rounded-lg bg-indigo-50 text-indigo-700 mb-3">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+            Dashboard
+        </a>
+        <a href="#" class="flex items-center p-3 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-800 mb-3">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            Agendamentos
+        </a>
+        <a href="#" class="flex items-center p-3 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-800 mb-3">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20v-2c-.516-.625-1.129-1.32-1.921-1.895M19 16.5V18a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2h4a2 2 0 012 2v7"></path></svg>
+            Relatórios
+        </a>
+        <a href="#" class="flex items-center p-3 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-800">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.942 3.313.805 2.551 2.433a1.724 1.724 0 00-.58 1.968c.379 1.83.189 3.551-.189 4.336a1.724 1.724 0 00-.58 1.968c-.762 1.628-2.532 2.47-3.55 1.551a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.942-3.313-.805-2.551-2.433a1.724 1.724 0 00-.58-1.968c-.379-1.83-.189-3.551.189-4.336a1.724 1.724 0 00.58-1.968c.762-1.628 2.532-2.47 3.55-1.551a1.724 1.724 0 002.573-1.066zM15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            Configurações
+        </a>
+    </nav>
+    
+    <!-- Informações de Status de Autenticação -->
+    <div class="mt-auto pt-6 border-t border-gray-200">
+        <p class="text-xs font-semibold text-gray-600 mb-1">Status da Sessão:</p>
+        <p id="auth-status" class="text-xs font-medium text-red-500">Não Autenticado</p>
+        <p class="text-xs text-gray-400 truncate mt-1">UID: <span id="user-uid">N/A</span></p>
+    </div>
+</div>
+
+<!-- Container Principal do Layout -->
+<div class="flex flex-col lg:flex-row min-h-screen">
+
+    <!-- Overlay para fechar a sidebar no mobile -->
+    <div id="overlay" class="fixed inset-0 bg-black opacity-50 hidden lg:hidden"></div>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 p-4 sm:p-6 lg:p-8">
+        <!-- Barra Superior (Header no mobile) -->
+        <header class="flex justify-between items-center lg:hidden mb-6">
+            <h1 class="text-2xl font-bold text-indigo-700">Dashboard</h1>
+            <button id="sidebar-toggle" class="sidebar-toggle-btn p-2 rounded-lg text-gray-600 hover:bg-gray-100">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+        </header>
+
+        <!-- Título da Seção -->
+        <h1 class="text-3xl font-bold text-gray-900 hidden lg:block mb-8">Gestão de Pacientes</h1>
+
+        <!-- Cartões de Resumo (Stats) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
+                <p class="text-sm font-medium text-gray-500">Total de Pacientes</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">12</p>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
+                <p class="text-sm font-medium text-gray-500">Agendados Hoje</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">3</p>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
+                <p class="text-sm font-medium text-gray-500">Próxima Sessão</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">15:00</p>
+            </div>
+            <div class="bg-white p-5 rounded-xl shadow-lg border border-indigo-100">
+                <p class="text-sm font-medium text-gray-500">Pendências</p>
+                <p class="text-2xl font-bold text-red-500 mt-1">2</p>
+            </div>
+        </div>
+
+        <!-- Seção de Lista de Pacientes -->
+        <div class="bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold text-gray-900">Meus Pacientes Ativos</h2>
+                <button onclick="openAddPatientModal()" class="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-indigo-700 transition duration-150 shadow-md">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    Adicionar Novo
+                </button>
+            </div>
+
+            <!-- Lista de Pacientes (Preenchida pelo JS) -->
+            <div id="patients-list" class="space-y-3">
+                <!-- Itens serão injetados aqui após o carregamento do Firestore -->
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Notificação de Status (Toast) -->
+<div id="notification-box" class="hidden"></div>
+
+<!-- Modal de Adicionar Novo Paciente -->
+<div id="modal-backdrop" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 transition-opacity duration-300"></div>
+
+<div id="add-patient-modal" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-xl shadow-3xl p-6 hidden z-50 border border-gray-200">
+    <div class="flex justify-between items-center mb-6">
+        <h3 class="text-xl font-bold text-gray-800">Novo Paciente</h3>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+    </div>
+    
+    <form id="new-patient-form">
+        <div class="mb-4">
+            <label for="patient-name" class="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
+            <input type="text" id="patient-name" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+        </div>
+        <div class="mb-6">
+            <label for="patient-email" class="block text-sm font-medium text-gray-700 mb-2">E-mail (Opcional)</label>
+            <input type="email" id="patient-email" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+        </div>
+        
+        <button type="submit" id="add-patient-btn" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300 shadow-lg">
+            Adicionar Paciente
+        </button>
+    </form>
+</div>
+
 </body>
 </html>
