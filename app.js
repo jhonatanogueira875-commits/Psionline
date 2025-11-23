@@ -1,16 +1,17 @@
-// app.js - Versão restaurada com Exports e Lógica de Autenticação
+// app.js - Implementação de Checagem de Função (Role-Based Access Control - RBAC)
 
 // Configurações Supabase (Usando placeholders aqui, mas deve ser o seu real)
 const SUPABASE_URL = 'https://jhcylgeukoiomydgppxc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A';
 
-// Exporta o cliente para uso global ou em outros módulos, se necessário
+// Exporta o cliente
 export const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Variáveis de estado global
 let currentPage = 'loading'; 
 let currentAdminTab = 'dashboard';
-let globalUsersData = []; // Cache de dados de usuários
+let globalUsersData = []; 
+let currentUserRole = null; // Armazenar a função do usuário
 
 /* -------------------------
     Controle de página/aba
@@ -25,25 +26,52 @@ export function changeAdminTab(tab) {
 }
 
 /* -------------------------
-    Autenticação
+    Autenticação e Permissão
 ------------------------- */
+
+// Função para buscar a função (role) do usuário logado na tabela 'users'
+async function checkAdminRole(user_id) {
+    // Busca a função do usuário na tabela 'users'
+    const { data, error } = await supabaseClient
+        .from('users')
+        .select('role')
+        .eq('id', user_id)
+        .single();
+
+    if (error) {
+        console.error("Erro ao buscar função do usuário:", error);
+        return 'unknown';
+    }
+
+    return data ? data.role : 'client';
+}
+
 export async function handleLogin(email, password) {
     try {
-        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
         
-        // Sucesso no login, define a página para 'admin'
-        setCurrentPage('admin'); 
+        const userId = data.user.id;
+        currentUserRole = await checkAdminRole(userId);
+
+        if (currentUserRole === 'admin') {
+            setCurrentPage('admin'); 
+        } else {
+            // Se não for admin, faz logout e mostra erro.
+            await supabaseClient.auth.signOut();
+            throw new Error("Acesso negado. Apenas administradores podem acessar este painel.");
+        }
     } catch (e) {
         const msg = document.getElementById('login-message');
-        if (msg) msg.innerText = `Erro: ${e.message}. Verifique suas credenciais.`;
-        console.error("Erro de login:", e);
+        if (msg) msg.innerText = `Erro: ${e.message}.`;
+        console.error("Erro de login/permissão:", e);
     }
 }
 
 export async function handleLogout() {
     try {
         await supabaseClient.auth.signOut();
+        currentUserRole = null;
         setCurrentPage('login');
     } catch (e) {
         console.error("Erro ao fazer logout:", e.message);
@@ -52,11 +80,21 @@ export async function handleLogout() {
 
 async function checkInitialSession() {
     try {
-        // Verifica a sessão para definir a página inicial
         const { data: { session } } = await supabaseClient.auth.getSession();
         
         if (session) {
-            setCurrentPage('admin');
+            const userId = session.user.id;
+            currentUserRole = await checkAdminRole(userId);
+
+            if (currentUserRole === 'admin') {
+                setCurrentPage('admin');
+            } else {
+                // Usuário logado mas não é admin: desloga e redireciona
+                await supabaseClient.auth.signOut();
+                setCurrentPage('login');
+                const app = document.getElementById('app');
+                if (app) app.innerHTML = `<div class="flex items-center justify-center h-screen"><h1 class="text-xl text-red-600">Acesso negado.</h1></div>`;
+            }
         } else {
             setCurrentPage('login');
         }
@@ -115,7 +153,7 @@ export function renderAdminShell() {
     <div class="min-h-screen flex flex-col">
         <header class="bg-white shadow-lg sticky top-0 z-10">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                <h1 class="text-2xl font-bold text-indigo-700">Psionline Admin</h1>
+                <h1 class="text-2xl font-bold text-indigo-700">Psionline Admin (${currentUserRole})</h1>
                 <nav class="flex space-x-2 sm:space-x-4">
                     <button class="tab-button p-2 rounded-lg transition duration-150 ${currentAdminTab==='dashboard'?'bg-indigo-600 text-white font-semibold shadow-md':'text-gray-600 hover:bg-indigo-50 hover:text-indigo-700'}" data-tab="dashboard">Dashboard</button>
                     <button class="tab-button p-2 rounded-lg transition duration-150 ${currentAdminTab==='users'?'bg-indigo-600 text-white font-semibold shadow-md':'text-gray-600 hover:bg-indigo-50 hover:text-indigo-700'}" data-tab="users">Usuários</button>
@@ -124,7 +162,6 @@ export function renderAdminShell() {
             </div>
         </header>
         <main id="admin-content" class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-            <!-- Conteúdo da aba será injetado aqui pelo renderAdminContent -->
             <div class="text-center p-10">
                 <div class="animate-pulse text-gray-500">Carregando conteúdo da aba...</div>
             </div>
@@ -134,18 +171,17 @@ export function renderAdminShell() {
 }
 
 /* -------------------------
-    Renderização - Conteúdo de Abas (Com Data Fetching)
+    Renderização - Conteúdo de Abas
 ------------------------- */
 
-// Renderiza o conteúdo da aba correta, chamando a função assíncrona
 export function renderAdminContent() {
     const main = document.getElementById('admin-content');
     if (!main) return;
 
     if (currentAdminTab === 'dashboard') {
-        renderDashboardContent(main); // Chama a função assíncrona
+        renderDashboardContent(main); 
     } else if (currentAdminTab === 'users') {
-        renderUsersContent(main); // Chama a função assíncrona
+        renderUsersContent(main); 
     } else {
         main.innerHTML = `<p class="text-center text-red-500">Aba não encontrada.</p>`;
     }
@@ -155,7 +191,6 @@ export function renderAdminContent() {
 // Dashboard - Carregamento Assíncrono
 // ------------------------------------
 async function renderDashboardContent(mainElement) {
-    // 1. Placeholder de carregamento imediato (o que você está vendo agora)
     mainElement.innerHTML = `
         <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 animate-pulse">
@@ -167,7 +202,7 @@ async function renderDashboardContent(mainElement) {
     `;
 
     try {
-        // 2. Tenta buscar os dados
+        // Busca de dados (mantida)
         const { count: totalUsers } = await supabaseClient
             .from('users')
             .select('*', { count: 'exact', head: true });
@@ -182,7 +217,7 @@ async function renderDashboardContent(mainElement) {
             .select('*', { count: 'exact', head: true })
             .eq('status', 'scheduled');
 
-        // 3. Sucesso: Renderiza o conteúdo final
+        // Renderiza o conteúdo final com dados reais
         mainElement.innerHTML = `
             <h2 class="text-3xl font-bold text-gray-800 mb-6">Dashboard</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -206,18 +241,15 @@ async function renderDashboardContent(mainElement) {
                 </div>
             </div>
         `;
-        // Garante que o Chart.js seja renderizado após o DOM
         setTimeout(renderDashboardChart, 100); 
 
     } catch (error) {
-        // 4. Falha: Renderiza a mensagem de erro detalhada
         console.error("Erro ao carregar dados do Dashboard:", error);
         mainElement.innerHTML = `
             <div class="p-8 bg-red-100 border border-red-400 text-red-700 rounded-lg shadow-xl mt-6">
                 <h2 class="text-2xl font-bold mb-3">🚨 Erro ao Carregar Métricas</h2>
-                <p>Ocorreu um erro na busca de dados. A causa mais comum é RLS (Row Level Security).</p>
-                <p><strong>Ação Obrigatória:</strong> Verifique as regras de RLS nas tabelas 'users' e 'appointments' do seu projeto Supabase.</p>
-                <p class="mt-2 font-mono text-sm">Detalhe do Erro: ${error.message}</p>
+                <p>Verifique as regras de RLS nas tabelas 'users' e 'appointments'.</p>
+                <p class="mt-2 font-mono text-sm">Detalhe: ${error.message}</p>
             </div>
         `;
     }
@@ -227,7 +259,6 @@ async function renderDashboardContent(mainElement) {
 // Usuários - Carregamento Assíncrono
 // ------------------------------------
 async function renderUsersContent(mainElement) {
-    // 1. Placeholder de carregamento imediato
     mainElement.innerHTML = `
         <h2 class="text-3xl font-bold text-gray-800 mb-6">Lista de Usuários</h2>
         <div class="overflow-x-auto bg-white rounded-xl shadow-xl p-8 text-center text-gray-500">
@@ -237,7 +268,6 @@ async function renderUsersContent(mainElement) {
     `;
 
     try {
-        // 2. Tenta buscar os dados
         const { data: users, error } = await supabaseClient
             .from('users')
             .select('id, full_name, email, role, created_at, status')
@@ -251,7 +281,7 @@ async function renderUsersContent(mainElement) {
             let roleStyle = 'bg-gray-100 text-gray-800';
             if (user.role === 'admin') roleStyle = 'bg-red-100 text-red-800';
             if (user.role === 'psychologist') roleStyle = 'bg-yellow-100 text-yellow-800';
-            if (user.role === 'client') roleStyle = 'bg-blue-100 text-blue-800';
+            if (user.role === 'client' || user.role === 'patient') roleStyle = 'bg-blue-100 text-blue-800';
             
             let statusStyle = 'bg-gray-100 text-gray-800';
             if (user.status === 'active') statusStyle = 'bg-green-100 text-green-800';
@@ -278,7 +308,6 @@ async function renderUsersContent(mainElement) {
             `;
         }).join('');
 
-        // 3. Sucesso: Renderiza a tabela com dados reais
         mainElement.innerHTML = `
             <h2 class="text-3xl font-bold text-gray-800 mb-6">Lista de Usuários (${users.length} encontrados)</h2>
             <div class="overflow-x-auto bg-white rounded-xl shadow-xl">
@@ -300,14 +329,12 @@ async function renderUsersContent(mainElement) {
         `;
 
     } catch (error) {
-        // 4. Falha: Renderiza a mensagem de erro detalhada
         console.error("Erro ao carregar lista de usuários:", error);
         mainElement.innerHTML = `
             <div class="p-8 bg-red-100 border border-red-400 text-red-700 rounded-lg shadow-xl mt-6">
                 <h2 class="text-2xl font-bold mb-3">🚨 Erro ao Carregar Usuários</h2>
-                <p>Ocorreu um erro na busca de dados. A causa mais comum é RLS (Row Level Security).</p>
-                <p><strong>Ação Obrigatória:</strong> Verifique a conexão e as regras de RLS na tabela 'users'.</p>
-                <p class="mt-2 font-mono text-sm">Detalhe do Erro: ${error.message}</p>
+                <p>Verifique a conexão e as regras de RLS (Row Level Security) na tabela 'users'.</p>
+                <p class="mt-2 font-mono text-sm">Detalhe: ${error.message}</p>
             </div>
         `;
     }
@@ -315,7 +342,7 @@ async function renderUsersContent(mainElement) {
 
 
 /* -------------------------
-    Gráficos e Listeners (Mantidos do código anterior)
+    Gráficos e Listeners (Mantidos)
 ------------------------- */
 
 function renderDashboardChart() {
@@ -392,7 +419,6 @@ export function render() {
     const app = document.getElementById('app');
     if (!app) return;
 
-    // Remove o loader do index.html se ele estiver presente
     const initialLoader = document.getElementById('initial-loader');
     if (initialLoader) initialLoader.remove();
 
@@ -414,6 +440,5 @@ export function render() {
     Inicialização
 ------------------------- */
 export function init() {
-    // Chamada inicial que define se a página é 'login' ou 'admin'
     checkInitialSession();
 }
