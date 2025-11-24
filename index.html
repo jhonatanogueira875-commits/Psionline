@@ -1,531 +1,495 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Dashboard do Psicólogo - PsicoConnect</title>
-    <!-- Carrega o Tailwind CSS via CDN -->
+
+    <!-- Tailwind (CDN) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f0f4f8;
-        }
-        .mood-indicator {
-            font-size: 1.5rem;
-            width: 2.5rem;
-            height: 2.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            background-color: #eef2ff;
-        }
-        /* Estilo para notas longas, forçando quebras */
-        .notes-content {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
+        body { font-family: 'Inter', sans-serif; background-color: #f0f4f8; }
+        .mood-indicator { font-size: 1.5rem; width: 2.5rem; height: 2.5rem; display:flex; align-items:center; justify-content:center; border-radius:50%; background-color:#eef2ff; }
+        .notes-content { white-space: pre-wrap; word-wrap: break-word; }
     </style>
 </head>
 <body>
 
-<!-- Configuração e Importações do Firebase -->
 <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, addDoc, onSnapshot, collection, query, serverTimestamp, setLogLevel, getDoc, setDoc, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+/*
+  Index corrigido - PsicoConnect
+  Variáveis de ambiente (injetadas pelo Canvas / ambiente):
+    - __app_id
+    - __firebase_config  (JSON string)
+    - __initial_auth_token (opcional)
+*/
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import {
+  getFirestore,
+  doc,
+  addDoc,
+  onSnapshot,
+  collection,
+  query,
+  serverTimestamp,
+  setLogLevel,
+  getDoc,
+  setDoc,
+  where
+} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // Variáveis Globais do Ambiente (Obrigatórias)
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+// --- VARIÁVEIS GLOBAIS INJETADAS ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-    setLogLevel('Debug');
-    
-    let app, db, auth;
-    let psychologistId = null;
-    let isAuthReady = false;
-    let selectedPatientId = null;
-    let selectedPatientName = null;
+// --- DEBUG / LOG ---
+setLogLevel('debug');
 
-    // Mapeamento de Humor para Emoji/Cor
-    const MOOD_MAP = {
-        1: { emoji: '😭', color: 'bg-red-200 text-red-800', text: 'Terrível' },
-        2: { emoji: '😔', color: 'bg-yellow-200 text-yellow-800', text: 'Ruim' },
-        3: { emoji: '😐', color: 'bg-gray-200 text-gray-800', text: 'Neutro' },
-        4: { emoji: '😊', color: 'bg-green-220 text-green-800', text: 'Bom' },
-        5: { emoji: '🤩', color: 'bg-blue-200 text-blue-800', text: 'Excelente' },
-    };
+// --- ESTADO LOCAL ---
+let app, db, auth;
+let psychologistId = null;
+let isAuthReady = false;
+let selectedPatientId = null;
+let selectedPatientName = null;
 
-    // --- INICIALIZAÇÃO E AUTENTICAÇÃO ---
+// Mapeamento de humor => emoji / classes
+const MOOD_MAP = {
+    1: { emoji: '😭', color: 'bg-red-200 text-red-800', text: 'Terrível' },
+    2: { emoji: '😔', color: 'bg-yellow-200 text-yellow-800', text: 'Ruim' },
+    3: { emoji: '😐', color: 'bg-gray-200 text-gray-800', text: 'Neutro' },
+    4: { emoji: '😊', color: 'bg-green-200 text-green-800', text: 'Bom' }, // corrigido
+    5: { emoji: '🤩', color: 'bg-blue-200 text-blue-800', text: 'Excelente' },
+};
+
+// -----------------------
+// Funções utilitárias
+// -----------------------
+function showMessage(message, type = 'info') {
+    const box = document.getElementById('notification-box');
+    if (!box) return;
+    box.textContent = message;
+    box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm transition-opacity duration-300 z-50';
+
+    if (type === 'error') box.classList.add('bg-red-500','text-white');
+    else if (type === 'success') box.classList.add('bg-green-500','text-white');
+    else box.classList.add('bg-indigo-500','text-white');
+
+    box.classList.remove('hidden');
+    clearTimeout(box.__hideTimeout);
+    box.__hideTimeout = setTimeout(() => box.classList.add('hidden'), 5000);
+}
+
+function formatDate(timestamp) {
+    if (!timestamp) return 'Data Indisponível';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+    return date.toLocaleDateString('pt-BR', options);
+}
+
+// -----------------------
+// Inicialização Firebase
+// -----------------------
+try {
+    if (Object.keys(firebaseConfig).length === 0) {
+        console.error('Firebase config vazia');
+        showMessage('Erro: Firebase não configurado.', 'error');
+    } else {
+        app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+
+        async function authenticate() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error('Erro na autenticação:', err);
+                showMessage('Erro na autenticação. Recarregue a página.', 'error');
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                psychologistId = user.uid;
+                isAuthReady = true;
+                document.getElementById('psychologist-id').textContent = psychologistId;
+                document.getElementById('loading-patients').classList.remove('hidden');
+                loadPatientList();
+            } else {
+                psychologistId = null;
+                isAuthReady = true;
+                document.getElementById('psychologist-id').textContent = 'Não autenticado.';
+                showMessage('Você precisa estar logado como Psicólogo.', 'error');
+            }
+        });
+
+        // inicia a autenticação
+        authenticate();
+    }
+} catch (e) {
+    console.error('Erro fatal ao inicializar Firebase:', e);
+    showMessage('Erro: Falha ao iniciar o aplicativo.', 'error');
+}
+
+// -----------------------
+// Associação de paciente (adicionar por ID)
+// -----------------------
+document.getElementById('add-patient-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!isAuthReady || !psychologistId) {
+        showMessage('Aguarde a autenticação do Psicólogo.', 'error');
+        return;
+    }
+
+    const patientIdInput = document.getElementById('patient-id-input');
+    const patientId = patientIdInput.value.trim();
+    const btn = document.getElementById('add-patient-btn');
+
+    if (!patientId) {
+        showMessage('Insira um ID de Paciente válido.', 'error');
+        return;
+    }
+    if (patientId === psychologistId) {
+        showMessage('Você não pode se adicionar como paciente!', 'error');
+        return;
+    }
+
+    btn.textContent = 'Verificando...';
+    btn.disabled = true;
 
     try {
-        if (Object.keys(firebaseConfig).length > 0) {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
+        // 1) verifica se esse user existe e tem role 'patient' (convenção que você usa)
+        const patientUserDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', patientId);
+        const patientSnap = await getDoc(patientUserDocRef);
 
-            async function authenticate() {
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (error) {
-                    console.error("Erro na autenticação:", error);
-                    showMessage('Erro na autenticação. Recarregue a página.', 'error');
-                }
-            }
-
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    psychologistId = user.uid;
-                    document.getElementById('psychologist-id').textContent = psychologistId;
-                    isAuthReady = true;
-                    // Inicia o carregamento da lista de pacientes
-                    loadPatientList();
-                } else {
-                    psychologistId = null;
-                    isAuthReady = true;
-                    document.getElementById('psychologist-id').textContent = 'Não autenticado.';
-                    showMessage('Você precisa estar logado como Psicólogo.', 'error');
-                }
-            });
-
-            authenticate();
-
-        } else {
-            console.error("Configuração do Firebase vazia.");
-            showMessage('Erro: Firebase não configurado.', 'error');
-        }
-    } catch (e) {
-        console.error("Erro fatal ao inicializar o Firebase:", e);
-        showMessage('Erro: Falha ao iniciar o aplicativo.', 'error');
-    }
-
-    // --- FUNÇÕES DE UTILIDADE ---
-
-    function showMessage(message, type = 'info') {
-        const box = document.getElementById('notification-box');
-        box.textContent = message;
-        box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm transition-opacity duration-300 z-50';
-        
-        if (type === 'error') {
-            box.classList.add('bg-red-500', 'text-white');
-        } else if (type === 'success') {
-            box.classList.add('bg-green-500', 'text-white');
-        } else {
-            box.classList.add('bg-indigo-500', 'text-white');
-        }
-        
-        box.classList.remove('hidden');
-        setTimeout(() => {
-            box.classList.add('hidden');
-        }, 5000);
-    }
-
-    function formatDate(timestamp) {
-        if (!timestamp) return 'Data Indisponível';
-        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-        const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-        return date.toLocaleDateString('pt-BR', options);
-    }
-    
-    // --- LÓGICA DE ASSOCIAÇÃO E LISTA DE PACIENTES ---
-
-    document.getElementById('add-patient-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        if (!isAuthReady || !psychologistId) {
-            showMessage("Aguarde a autenticação do Psicólogo.", 'error');
+        if (!patientSnap.exists() || patientSnap.data().role !== 'patient') {
+            showMessage(`ID ${patientId} não encontrado ou não é um Paciente.`, 'error');
             return;
         }
 
-        const patientIdInput = document.getElementById('patient-id-input');
-        const patientId = patientIdInput.value.trim();
-        const btn = document.getElementById('add-patient-btn');
+        const patientNameFromData = patientSnap.data().name || `Paciente ${patientId.substring(0,8)}`;
 
-        if (!patientId) {
-            showMessage("Insira um ID de Paciente válido.", 'error');
-            return;
-        }
-
-        if (patientId === psychologistId) {
-             showMessage("Você não pode se adicionar como paciente!", 'error');
-            return;
-        }
-        
-        btn.textContent = 'Verificando...';
-        btn.disabled = true;
-
-        try {
-            // 1. Verificar ID e role 'patient' (simulação, pois o Firestore não garante role)
-            const patientUserDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', patientId);
-            const patientSnap = await getDoc(patientUserDocRef);
-            let patientNameFromData = `Paciente ${patientId.substring(0, 8)}`;
-
-
-            if (!patientSnap.exists() || patientSnap.data().role !== 'patient') {
-                showMessage(`ID ${patientId} não encontrado ou não é um Paciente.`, 'error');
-                return;
-            }
-            patientNameFromData = patientSnap.data().name || patientNameFromData;
-
-            // 2. Salvar a associação na coleção privada do psicólogo
-            const patientsCollectionRef = collection(db, 'artifacts', appId, 'users', psychologistId, 'patients');
-            
-            await setDoc(doc(patientsCollectionRef, patientId), {
-                patientId: patientId,
-                name: patientNameFromData,
-                addedAt: serverTimestamp(),
-            });
-
-            showMessage(`Paciente "${patientNameFromData}" associado com sucesso!`, 'success');
-            patientIdInput.value = '';
-
-        } catch (error) {
-            console.error("Erro ao adicionar paciente:", error);
-            showMessage(`Falha ao associar: ${error.message}`, 'error');
-        } finally {
-            btn.textContent = 'Adicionar Paciente';
-            btn.disabled = false;
-        }
-    });
-
-    function loadPatientList() {
-        if (!isAuthReady || !psychologistId || !db) return;
-
+        // 2) salvamos na coleção privada do psicólogo: artifacts/{appId}/users/{psychologistId}/patients/{patientId}
         const patientsCollectionRef = collection(db, 'artifacts', appId, 'users', psychologistId, 'patients');
-        const q = query(patientsCollectionRef);
-
-        const loadingMessage = document.getElementById('loading-patients');
-        loadingMessage.classList.remove('hidden');
-
-        onSnapshot(q, (snapshot) => {
-            const patients = [];
-            snapshot.forEach(doc => {
-                patients.push(doc.data());
-            });
-
-            renderPatientList(patients);
-            loadingMessage.classList.add('hidden');
-        }, (error) => {
-            console.error("Erro ao ouvir lista de pacientes:", error);
-            showMessage('Erro ao carregar a lista de pacientes.', 'error');
-            loadingMessage.classList.add('hidden');
+        await setDoc(doc(patientsCollectionRef, patientId), {
+            patientId,
+            name: patientNameFromData,
+            addedAt: serverTimestamp()
         });
+
+        showMessage(`Paciente "${patientNameFromData}" associado com sucesso!`, 'success');
+        patientIdInput.value = '';
+        // re-carrega lista
+        loadPatientList();
+    } catch (err) {
+        console.error('Erro ao adicionar paciente:', err);
+        showMessage(`Falha ao associar: ${err.message}`, 'error');
+    } finally {
+        btn.textContent = 'Adicionar Paciente';
+        btn.disabled = false;
     }
+});
 
-    function renderPatientList(patients) {
-        const patientList = document.getElementById('patient-list');
-        patientList.innerHTML = '';
+// -----------------------
+// Carregamento / renderização da lista de pacientes
+// -----------------------
+function loadPatientList() {
+    if (!isAuthReady || !psychologistId || !db) return;
 
-        if (patients.length === 0) {
-            patientList.innerHTML = '<p class="text-gray-500 text-center py-8">Você ainda não tem pacientes associados.</p>';
-            document.getElementById('patient-details-card').classList.add('hidden');
-            document.getElementById('initial-message').classList.remove('hidden');
-            return;
-        }
-        
-        patients.forEach(patient => {
-            const patientElement = document.createElement('div');
-            patientElement.className = 'p-4 bg-white rounded-lg shadow-md hover:bg-indigo-50 cursor-pointer transition duration-150 border-l-4 border-indigo-400';
-            patientElement.innerHTML = `
-                <div class="font-bold text-gray-800">${patient.name}</div>
-                <div class="text-xs text-gray-500 truncate mt-1">ID: ${patient.patientId}</div>
-            `;
-            
-            patientElement.addEventListener('click', () => {
-                // Remove destaque de todos
-                document.querySelectorAll('#patient-list > div').forEach(el => el.classList.remove('bg-indigo-100', 'border-indigo-600'));
-                
-                // Define o paciente selecionado globalmente
-                selectedPatientId = patient.patientId;
-                selectedPatientName = patient.name;
-                
-                // Inicia a visualização do diário e metas
-                viewPatientMood(selectedPatientId, selectedPatientName);
-                viewPatientGoals(selectedPatientId); 
+    const patientsCollectionRef = collection(db, 'artifacts', appId, 'users', psychologistId, 'patients');
+    const q = query(patientsCollectionRef);
+    const loadingMessage = document.getElementById('loading-patients');
+    loadingMessage.classList.remove('hidden');
 
-                // Destaca o paciente selecionado
-                patientElement.classList.add('bg-indigo-100', 'border-indigo-600');
-                document.getElementById('initial-message').classList.add('hidden');
-            });
-
-            patientList.appendChild(patientElement);
-        });
-        
-        // Seleciona o primeiro paciente por padrão na inicialização
-        if (patients.length > 0 && !selectedPatientId) {
-            patientList.children[0].click(); 
-        } else if (selectedPatientId) {
-            // Se já havia um selecionado, re-seleciona
-            const currentSelected = Array.from(patientList.children).find(el => el.querySelector('code')?.textContent.includes(selectedPatientId));
-            if (currentSelected) {
-                 currentSelected.classList.add('bg-indigo-100', 'border-indigo-600');
-            } else {
-                 // Se o paciente selecionado não estiver mais na lista (foi removido), limpa a seleção
-                 document.getElementById('patient-details-card').classList.add('hidden');
-                 selectedPatientId = null;
-                 selectedPatientName = null;
-            }
-        }
-    }
-
-    // --- LÓGICA DE VISUALIZAÇÃO DO DIÁRIO DE HUMOR DO PACIENTE ---
-
-    function viewPatientMood(patientId, patientName) {
-        if (!db) return;
-
-        // Atualiza o cabeçalho do painel de detalhes
-        document.getElementById('patient-details-card').classList.remove('hidden');
-        document.getElementById('patient-name-detail').textContent = patientName;
-        document.getElementById('patient-id-detail').textContent = patientId;
-        
-        const moodEntriesDetail = document.getElementById('mood-entries-detail');
-        moodEntriesDetail.innerHTML = '<p class="text-center text-indigo-500 py-8">Carregando diário de humor...</p>';
-        document.getElementById('tab-mood').click(); // Define a aba Diário como ativa
-
-        // Caminho para a coleção privada do *PACIENTE*: /artifacts/{appId}/users/{patientId}/mood_entries
-        const patientMoodCollectionRef = collection(db, 'artifacts', appId, 'users', patientId, 'mood_entries');
-        const q = query(patientMoodCollectionRef);
-
-        onSnapshot(q, (snapshot) => {
-            let entries = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                entries.push({ id: doc.id, ...data });
-            });
-            
-            entries.sort((a, b) => {
-                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
-                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
-                return timeB - timeA;
-            });
-
-            renderPatientMoodDetails(entries);
-
-        }, (error) => {
-            console.error("Erro ao ouvir diário do paciente:", error);
-            moodEntriesDetail.innerHTML = `<p class="text-center text-red-500 py-8">Erro ao carregar dados do paciente.</p>`;
-        });
-    }
-
-    function renderPatientMoodDetails(entries) {
-        const moodEntriesDetail = document.getElementById('mood-entries-detail');
-        moodEntriesDetail.innerHTML = '';
-
-        if (entries.length === 0) {
-            moodEntriesDetail.innerHTML = '<p class="text-gray-500 text-center py-8">O paciente ainda não registrou entradas no diário.</p>';
-            return;
-        }
-
-        entries.forEach(entry => {
-            const mood = MOOD_MAP[entry.mood] || { emoji: '❓', color: 'bg-gray-200 text-gray-800', text: 'Desconhecido' };
-            const dateStr = formatDate(entry.timestamp);
-
-            const entryElement = document.createElement('div');
-            entryElement.className = 'bg-gray-50 p-4 rounded-lg shadow-sm mb-3 border border-gray-100';
-            entryElement.innerHTML = `
-                <div class="flex justify-between items-center mb-2">
-                    <div class="flex items-center space-x-3">
-                        <span class="mood-indicator ${mood.color}">${mood.emoji}</span>
-                        <span class="font-semibold text-lg text-gray-700">${mood.text}</span>
-                    </div>
-                    <span class="text-xs text-gray-500">${dateStr}</span>
-                </div>
-                <p class="text-sm text-gray-600 notes-content">${entry.notes || 'Sem notas.'}</p>
-            `;
-            moodEntriesDetail.appendChild(entryElement);
-        });
-    }
-
-    // --- LÓGICA DE CRIAÇÃO DE METAS ---
-    
-    // Abre o modal de criação de meta
-    document.getElementById('open-goal-modal-btn').addEventListener('click', () => {
-        if (!selectedPatientId) {
-            showMessage("Selecione um paciente primeiro.", 'error');
-            return;
-        }
-        document.getElementById('goal-patient-name').textContent = selectedPatientName;
-        document.getElementById('goal-modal').classList.remove('hidden');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const patients = [];
+        snapshot.forEach(d => patients.push(d.data()));
+        renderPatientList(patients);
+        loadingMessage.classList.add('hidden');
+    }, (error) => {
+        console.error('Erro ao ouvir lista de pacientes:', error);
+        showMessage('Erro ao carregar a lista de pacientes.', 'error');
+        loadingMessage.classList.add('hidden');
     });
 
-    // Fecha o modal
-    document.getElementById('close-goal-modal').addEventListener('click', () => {
+    // retorna unsubscribe apenas por segurança (não usado aqui)
+    return unsubscribe;
+}
+
+function renderPatientList(patients) {
+    const patientList = document.getElementById('patient-list');
+    patientList.innerHTML = '';
+
+    if (!patients || patients.length === 0) {
+        patientList.innerHTML = '<p class="text-gray-500 text-center py-8">Você ainda não tem pacientes associados.</p>';
+        document.getElementById('patient-details-card').classList.add('hidden');
+        document.getElementById('initial-message').classList.remove('hidden');
+        return;
+    }
+
+    patients.forEach(patient => {
+        const patientElement = document.createElement('div');
+        patientElement.className = 'p-4 bg-white rounded-lg shadow-md hover:bg-indigo-50 cursor-pointer transition duration-150 border-l-4 border-indigo-400';
+        // incluímos data-patient-id para facilitar buscas posteriores
+        patientElement.setAttribute('data-patient-id', patient.patientId);
+        patientElement.innerHTML = `
+            <div class="font-bold text-gray-800">${escapeHtml(patient.name)}</div>
+            <div class="text-xs text-gray-500 truncate mt-1">ID: ${escapeHtml(patient.patientId)}</div>
+        `;
+
+        patientElement.addEventListener('click', () => {
+            // limpa destaque
+            document.querySelectorAll('#patient-list > div').forEach(el => el.classList.remove('bg-indigo-100', 'border-indigo-600'));
+            selectedPatientId = patient.patientId;
+            selectedPatientName = patient.name;
+
+            viewPatientMood(selectedPatientId, selectedPatientName);
+            viewPatientGoals(selectedPatientId);
+
+            patientElement.classList.add('bg-indigo-100', 'border-indigo-600');
+            document.getElementById('initial-message').classList.add('hidden');
+        });
+
+        patientList.appendChild(patientElement);
+    });
+
+    // Seleciona o primeiro paciente por padrão caso nada esteja selecionado
+    if (patients.length > 0 && !selectedPatientId) {
+        patientList.children[0].click();
+    } else if (selectedPatientId) {
+        // tenta encontrar e marcar o paciente previamente selecionado
+        const existing = patientList.querySelector(`[data-patient-id="${selectedPatientId}"]`);
+        if (existing) {
+            existing.classList.add('bg-indigo-100', 'border-indigo-600');
+        } else {
+            // paciente removido — limpa seleção
+            document.getElementById('patient-details-card').classList.add('hidden');
+            selectedPatientId = null;
+            selectedPatientName = null;
+        }
+    }
+}
+
+// -----------------------
+// Visualização do Diário de Humor
+// -----------------------
+function viewPatientMood(patientId, patientName) {
+    if (!db) return;
+    document.getElementById('patient-details-card').classList.remove('hidden');
+    document.getElementById('patient-name-detail').textContent = patientName || '';
+    document.getElementById('patient-id-detail').textContent = patientId || '';
+
+    const moodEntriesDetail = document.getElementById('mood-entries-detail');
+    moodEntriesDetail.innerHTML = '<p class="text-center text-indigo-500 py-8">Carregando diário de humor...</p>';
+    // ativa aba diário
+    document.getElementById('tab-mood').click();
+
+    const patientMoodCollectionRef = collection(db, 'artifacts', appId, 'users', patientId, 'mood_entries');
+    const q = query(patientMoodCollectionRef);
+
+    onSnapshot(q, (snapshot) => {
+        const entries = [];
+        snapshot.forEach(d => entries.push({ id: d.id, ...d.data() }));
+        // ordenar por timestamp desc
+        entries.sort((a,b) => {
+            const ta = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || 0);
+            const tb = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || 0);
+            return tb - ta;
+        });
+        renderPatientMoodDetails(entries);
+    }, (err) => {
+        console.error('Erro ao ouvir diário do paciente:', err);
+        moodEntriesDetail.innerHTML = `<p class="text-center text-red-500 py-8">Erro ao carregar dados do paciente.</p>`;
+    });
+}
+
+function renderPatientMoodDetails(entries) {
+    const moodEntriesDetail = document.getElementById('mood-entries-detail');
+    moodEntriesDetail.innerHTML = '';
+
+    if (!entries || entries.length === 0) {
+        moodEntriesDetail.innerHTML = '<p class="text-gray-500 text-center py-8">O paciente ainda não registrou entradas no diário.</p>';
+        return;
+    }
+
+    entries.forEach(entry => {
+        const mood = MOOD_MAP[entry.mood] || { emoji: '❓', color: 'bg-gray-200 text-gray-800', text: 'Desconhecido' };
+        const dateStr = formatDate(entry.timestamp);
+
+        const entryElement = document.createElement('div');
+        entryElement.className = 'bg-gray-50 p-4 rounded-lg shadow-sm mb-3 border border-gray-100';
+        entryElement.innerHTML = `
+            <div class="flex justify-between items-center mb-2">
+                <div class="flex items-center space-x-3">
+                    <span class="mood-indicator ${mood.color}">${mood.emoji}</span>
+                    <span class="font-semibold text-lg text-gray-700">${escapeHtml(mood.text)}</span>
+                </div>
+                <span class="text-xs text-gray-500">${escapeHtml(dateStr)}</span>
+            </div>
+            <p class="text-sm text-gray-600 notes-content">${escapeHtml(entry.notes || 'Sem notas.')}</p>
+        `;
+        moodEntriesDetail.appendChild(entryElement);
+    });
+}
+
+// -----------------------
+// Metas: criar e visualizar
+// -----------------------
+document.getElementById('open-goal-modal-btn').addEventListener('click', () => {
+    if (!selectedPatientId) { showMessage('Selecione um paciente primeiro.', 'error'); return; }
+    document.getElementById('goal-patient-name').textContent = selectedPatientName || '';
+    document.getElementById('goal-modal').classList.remove('hidden');
+});
+
+document.getElementById('close-goal-modal').addEventListener('click', () => {
+    document.getElementById('goal-modal').classList.add('hidden');
+    document.getElementById('goal-form').reset();
+});
+
+document.getElementById('goal-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!psychologistId || !selectedPatientId) { showMessage('Erro: Psicólogo ou Paciente não selecionado.', 'error'); return; }
+
+    const title = document.getElementById('goal-title').value.trim();
+    const description = document.getElementById('goal-description').value.trim();
+    const btn = document.getElementById('save-goal-btn');
+
+    if (!title || !description) { showMessage('Preencha o título e a descrição da meta.', 'error'); return; }
+
+    btn.textContent = 'Salvando...'; btn.disabled = true;
+
+    try {
+        const goalsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'goals');
+        const goalData = {
+            psychologistId,
+            patientId: selectedPatientId,
+            title,
+            description,
+            isCompleted: false,
+            createdAt: serverTimestamp()
+        };
+        await addDoc(goalsCollectionRef, goalData);
+
+        showMessage('Meta criada com sucesso!', 'success');
         document.getElementById('goal-modal').classList.add('hidden');
         document.getElementById('goal-form').reset();
-    });
+        // atualiza lista de metas
+        viewPatientGoals(selectedPatientId);
+    } catch (err) {
+        console.error('Erro ao salvar meta:', err);
+        showMessage(`Falha ao salvar meta: ${err.message}`, 'error');
+    } finally {
+        btn.textContent = 'Criar Meta'; btn.disabled = false;
+    }
+});
 
-    // Submete a criação da meta
-    document.getElementById('goal-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
+function viewPatientGoals(patientId) {
+    if (!db) return;
+    const goalList = document.getElementById('goal-entries-detail');
+    goalList.innerHTML = '<p class="text-center text-indigo-500 py-8">Carregando metas...</p>';
 
-        if (!psychologistId || !selectedPatientId) {
-            showMessage("Erro: Psicólogo ou Paciente não selecionado.", 'error');
-            return;
-        }
-        
-        const title = document.getElementById('goal-title').value.trim();
-        const description = document.getElementById('goal-description').value.trim();
-        const btn = document.getElementById('save-goal-btn');
+    const goalsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'goals');
+    const q = query(goalsCollectionRef, where('patientId', '==', patientId));
 
-        if (!title || !description) {
-            showMessage("Preencha o título e a descrição da meta.", 'error');
-            return;
-        }
-        
-        btn.textContent = 'Salvando...';
-        btn.disabled = true;
-
-        try {
-            // Coleção pública para Metas: /artifacts/{appId}/public/data/goals
-            const goalsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'goals');
-            
-            const goalData = {
-                psychologistId: psychologistId,
-                patientId: selectedPatientId,
-                title: title,
-                description: description,
-                isCompleted: false, // O paciente que irá mudar isso
-                createdAt: serverTimestamp(),
-            };
-
-            await addDoc(goalsCollectionRef, goalData);
-
-            showMessage('Meta criada com sucesso!', 'success');
-            document.getElementById('goal-modal').classList.add('hidden');
-            document.getElementById('goal-form').reset();
-
-
-        } catch (error) {
-            console.error("Erro ao salvar meta:", error);
-            showMessage(`Falha ao salvar meta: ${error.message}`, 'error');
-        } finally {
-            btn.textContent = 'Criar Meta';
-            btn.disabled = false;
-        }
-    });
-    
-    // --- LÓGICA DE VISUALIZAÇÃO DE METAS DO PACIENTE ---
-
-    function viewPatientGoals(patientId) {
-        if (!db) return;
-
-        const goalList = document.getElementById('goal-entries-detail');
-        goalList.innerHTML = '<p class="text-center text-indigo-500 py-8">Carregando metas...</p>';
-
-        // Busca metas onde o patientId corresponde ao ID do paciente selecionado
-        // Coleção pública para Metas: /artifacts/{appId}/public/data/goals
-        const goalsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'goals');
-        const q = query(goalsCollectionRef, where('patientId', '==', patientId));
-
-        onSnapshot(q, (snapshot) => {
-            let goals = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                goals.push({ id: doc.id, ...data });
-            });
-            
-            // Ordena localmente por status (não concluída primeiro) e depois por data
-            goals.sort((a, b) => {
-                if (a.isCompleted !== b.isCompleted) {
-                    return a.isCompleted ? 1 : -1; // Incompleta primeiro (false=0, true=1)
-                }
-                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt || 0);
-                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt || 0);
-                return timeB - timeA;
-            });
-
-            renderPatientGoals(goals);
-
-        }, (error) => {
-            console.error("Erro ao ouvir metas do paciente:", error);
-            goalList.innerHTML = `<p class="text-center text-red-500 py-8">Erro ao carregar metas.</p>`;
+    onSnapshot(q, (snapshot) => {
+        const goals = [];
+        snapshot.forEach(d => goals.push({ id: d.id, ...d.data() }));
+        // Ordena: incompletas primeiro, depois por createdAt desc
+        goals.sort((a,b) => {
+            if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+            const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt || 0);
+            const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt || 0);
+            return tb - ta;
         });
+        renderPatientGoals(goals);
+    }, (err) => {
+        console.error('Erro ao ouvir metas do paciente:', err);
+        goalList.innerHTML = `<p class="text-center text-red-500 py-8">Erro ao carregar metas.</p>`;
+    });
+}
+
+function renderPatientGoals(goals) {
+    const goalList = document.getElementById('goal-entries-detail');
+    goalList.innerHTML = '';
+
+    if (!goals || goals.length === 0) {
+        goalList.innerHTML = '<p class="text-gray-500 text-center py-8">Este paciente não tem metas ativas.</p>';
+        return;
     }
 
-    function renderPatientGoals(goals) {
-        const goalList = document.getElementById('goal-entries-detail');
-        goalList.innerHTML = '';
+    goals.forEach(goal => {
+        const statusClass = goal.isCompleted ? 'bg-green-100 border-green-500' : 'bg-red-100 border-red-500';
+        const statusText = goal.isCompleted ? 'Concluída' : 'Pendente';
+        const checkIcon = goal.isCompleted ? '&#10003;' : '&#9899;';
 
-        if (goals.length === 0) {
-            goalList.innerHTML = '<p class="text-gray-500 text-center py-8">Este paciente não tem metas ativas.</p>';
-            return;
-        }
+        const goalElement = document.createElement('div');
+        goalElement.className = `p-4 rounded-xl shadow-md mb-4 border-l-4 ${statusClass} transition duration-200`;
+        goalElement.innerHTML = `
+            <div class="flex justify-between items-center mb-2">
+                <h4 class="text-lg font-bold text-gray-800">${escapeHtml(goal.title)}</h4>
+                <span class="text-sm font-semibold p-1 px-3 rounded-full ${goal.isCompleted ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}">
+                    ${checkIcon} ${statusText}
+                </span>
+            </div>
+            <p class="text-sm text-gray-700 mb-3">${escapeHtml(goal.description)}</p>
+            <div class="text-xs text-gray-500">Criada em: ${escapeHtml(formatDate(goal.createdAt))}</div>
+        `;
+        goalList.appendChild(goalElement);
+    });
+}
 
-        goals.forEach(goal => {
-            const statusClass = goal.isCompleted ? 'bg-green-100 border-green-500' : 'bg-red-100 border-red-500';
-            const statusText = goal.isCompleted ? 'Concluída' : 'Pendente';
-            const checkIcon = goal.isCompleted ? '&#10003;' : '&#9899;'; // Checkmark / Dot
+// -----------------------
+// Tabs (aba)
+window.showTab = function(tabName, clickedElement) {
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    document.getElementById(tabName).classList.remove('hidden');
 
-            const goalElement = document.createElement('div');
-            goalElement.className = `p-4 rounded-xl shadow-md mb-4 border-l-4 ${statusClass} transition duration-200`;
-            goalElement.innerHTML = `
-                <div class="flex justify-between items-center mb-2">
-                    <h4 class="text-lg font-bold text-gray-800">${goal.title}</h4>
-                    <span class="text-sm font-semibold p-1 px-3 rounded-full ${goal.isCompleted ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}">
-                        ${checkIcon} ${statusText}
-                    </span>
-                </div>
-                <p class="text-sm text-gray-700 mb-3">${goal.description}</p>
-                <div class="text-xs text-gray-500">
-                    Criada em: ${formatDate(goal.createdAt)}
-                </div>
-            `;
-            goalList.appendChild(goalElement);
-        });
-    }
-
-    // --- LÓGICA DE ABA (TAB) ---
-    window.showTab = function(tabName, clickedElement) {
-        // Esconde todos os conteúdos
-        document.querySelectorAll('.tab-content').forEach(content => {
-            content.classList.add('hidden');
-        });
-
-        // Mostra o conteúdo da aba selecionada
-        document.getElementById(tabName).classList.remove('hidden');
-
-        // Remove a classe de ativo de todas as abas
-        document.querySelectorAll('.tab-button').forEach(btn => {
-            btn.classList.remove('border-indigo-600', 'text-indigo-600', 'font-semibold');
-            btn.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-        });
-
-        // Adiciona a classe de ativo ao botão clicado
-        clickedElement.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-        clickedElement.classList.add('border-indigo-600', 'text-indigo-600', 'font-semibold');
-    }
-
-    // Inicializa a primeira aba
-    document.addEventListener('DOMContentLoaded', () => {
-        // A aba será inicializada no onAuthStateChanged, mas garantimos o click aqui caso o user-id já esteja pronto
-        if(isAuthReady) {
-            document.getElementById('tab-mood').click();
-        }
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('border-indigo-600', 'text-indigo-600', 'font-semibold');
+        btn.classList.add('border-transparent','text-gray-500','hover:text-gray-700','hover:border-gray-300');
     });
 
+    clickedElement.classList.remove('border-transparent','text-gray-500','hover:text-gray-700','hover:border-gray-300');
+    clickedElement.classList.add('border-indigo-600','text-indigo-600','font-semibold');
+};
+
+// Garante que a aba inicial esteja pronta após DOM
+document.addEventListener('DOMContentLoaded', () => {
+    const tabMood = document.getElementById('tab-mood');
+    if (tabMood) tabMood.click();
+});
+
+// -----------------------
+// Helper: escapeHtml para evitar injeção ao inserir innerHTML
+// -----------------------
+function escapeHtml(unsafe) {
+    if (unsafe === undefined || unsafe === null) return '';
+    return String(unsafe)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
 </script>
 
-<!-- Layout Principal -->
+<!-- LAYOUT -->
 <div class="min-h-screen flex">
-    
-    <!-- Painel Lateral de Pacientes -->
+    <!-- Painel Lateral -->
     <aside class="w-80 bg-white p-6 shadow-2xl flex flex-col">
         <h2 class="text-2xl font-bold text-indigo-700 mb-6 border-b pb-3">Seus Pacientes</h2>
-        
-        <!-- ID do Psicólogo para Compartilhamento -->
+
         <div class="mb-6 p-3 bg-gray-100 rounded-lg">
             <label class="block text-xs font-semibold text-gray-600 mb-1">Seu ID de Psicólogo (Compartilhe!)</label>
             <code id="psychologist-id" class="text-xs text-gray-800 break-all cursor-copy" title="Clique para copiar ID">Carregando...</code>
         </div>
-        
-        <!-- Formulário de Adicionar Paciente -->
+
         <form id="add-patient-form" class="mb-6 p-4 bg-indigo-50 rounded-lg shadow-inner">
             <h3 class="text-md font-semibold text-indigo-800 mb-3">Adicionar Paciente por ID</h3>
             <input type="text" id="patient-id-input" placeholder="Cole o ID do Paciente aqui" class="w-full p-2 border border-indigo-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 mb-3" required>
@@ -534,117 +498,95 @@
             </button>
         </form>
 
-        <!-- Lista de Pacientes -->
         <div class="flex-grow overflow-y-auto space-y-3">
             <div id="loading-patients" class="text-center py-4 text-gray-500">Carregando lista...</div>
-            <div id="patient-list">
-                <!-- Pacientes serão injetados aqui -->
-            </div>
+            <div id="patient-list"></div>
         </div>
     </aside>
 
-    <!-- Área Principal de Detalhes -->
+    <!-- Área Principal -->
     <main class="flex-grow p-10 overflow-y-auto">
         <h1 class="text-4xl font-extrabold text-gray-800 mb-8">Análise de Progresso</h1>
-        
-        <!-- Card de Detalhes do Paciente Selecionado -->
+
         <div id="patient-details-card" class="bg-white p-8 rounded-2xl shadow-xl hidden">
-            
             <header class="mb-6 border-b pb-4 flex justify-between items-start">
                 <div>
-                    <h2 class="text-3xl font-bold text-indigo-600 mb-1">
-                        <span id="patient-name-detail" class="font-extrabold"></span>
-                    </h2>
+                    <h2 class="text-3xl font-bold text-indigo-600 mb-1"><span id="patient-name-detail" class="font-extrabold"></span></h2>
                     <p class="text-sm text-gray-500">ID: <code id="patient-id-detail"></code></p>
                 </div>
-                <button id="open-goal-modal-btn" class="py-2 px-4 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600 transition duration-300 shadow-md">
-                    + Nova Meta
-                </button>
+                <button id="open-goal-modal-btn" class="py-2 px-4 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600 transition duration-300 shadow-md">+ Nova Meta</button>
             </header>
-            
-            <!-- Abas de Navegação -->
+
             <div class="border-b border-gray-200 mb-6">
                 <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-                    <button id="tab-mood" onclick="showTab('mood-entries-detail', this)" class="tab-button whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm text-indigo-600 border-indigo-600">
-                        Diário de Humor
-                    </button>
-                    <button id="tab-goals" onclick="showTab('goal-entries-detail', this)" class="tab-button whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300">
-                        Metas/Tarefas
-                    </button>
+                    <button id="tab-mood" onclick="showTab('mood-entries-detail', this)" class="tab-button whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm text-indigo-600 border-indigo-600">Diário de Humor</button>
+                    <button id="tab-goals" onclick="showTab('goal-entries-detail', this)" class="tab-button whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300">Metas/Tarefas</button>
                 </nav>
             </div>
 
-
-            <!-- Conteúdo da Aba 1: Diário de Humor -->
-            <div id="mood-entries-detail" class="tab-content space-y-4 max-h-[500px] overflow-y-auto">
-                <!-- Entradas do diário serão injetadas aqui -->
-            </div>
-
-            <!-- Conteúdo da Aba 2: Metas/Tarefas -->
-            <div id="goal-entries-detail" class="tab-content space-y-4 max-h-[500px] overflow-y-auto hidden">
-                <!-- Metas serão injetadas aqui -->
-            </div>
-            
+            <div id="mood-entries-detail" class="tab-content space-y-4 max-h-[500px] overflow-y-auto"></div>
+            <div id="goal-entries-detail" class="tab-content space-y-4 max-h-[500px] overflow-y-auto hidden"></div>
         </div>
-        
-        <p id="initial-message" class="text-center text-gray-500 py-20 text-lg">
-            Selecione um paciente na lista lateral para visualizar seu diário de humor e definir metas.
-        </p>
+
+        <p id="initial-message" class="text-center text-gray-500 py-20 text-lg">Selecione um paciente na lista lateral para visualizar seu diário de humor e definir metas.</p>
     </main>
 </div>
 
-<!-- Modal de Criação de Meta (Hidden por padrão) -->
+<!-- Modal de Criação de Meta -->
 <div id="goal-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden">
     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
         <div class="flex justify-between items-center border-b pb-3 mb-4">
             <h3 class="text-xl font-bold text-indigo-700">Definir Nova Meta</h3>
             <button id="close-goal-modal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
         </div>
-        
-        <p class="mb-4 text-sm text-gray-600">
-            Criando meta para: <span id="goal-patient-name" class="font-semibold text-indigo-600"></span>
-        </p>
+
+        <p class="mb-4 text-sm text-gray-600">Criando meta para: <span id="goal-patient-name" class="font-semibold text-indigo-600"></span></p>
 
         <form id="goal-form">
             <div class="mb-4">
-                <label for="goal-title" class="block text-sm font-medium text-gray-700 mb-1">Título da Meta (Ex: Dar uma volta)</label>
+                <label for="goal-title" class="block text-sm font-medium text-gray-700 mb-1">Título da Meta</label>
                 <input type="text" id="goal-title" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
             </div>
             <div class="mb-6">
                 <label for="goal-description" class="block text-sm font-medium text-gray-700 mb-1">Descrição Detalhada/Instruções</label>
                 <textarea id="goal-description" rows="3" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="O que exatamente o paciente deve fazer."></textarea>
             </div>
-            
-            <button type="submit" id="save-goal-btn" class="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300">
-                Criar Meta
-            </button>
+
+            <button type="submit" id="save-goal-btn" class="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-300">Criar Meta</button>
         </form>
     </div>
 </div>
 
-<!-- Notificação de Status (Toast) -->
+<!-- Notificação de Status -->
 <div id="notification-box" class="hidden"></div>
 
-<script type="text/javascript">
-    // Script para copiar o ID do psicólogo ao clicar
-    document.addEventListener('DOMContentLoaded', () => {
-        const psychologistIdElement = document.getElementById('psychologist-id');
-        if (psychologistIdElement) {
-            psychologistIdElement.addEventListener('click', () => {
-                const idToCopy = psychologistIdElement.textContent;
-                if (idToCopy && idToCopy !== 'Carregando...' && idToCopy !== 'Não autenticado.') {
-                    // Usa execCommand('copy') pois navigator.clipboard pode não funcionar no iFrame
-                    const tempInput = document.createElement('textarea');
-                    tempInput.value = idToCopy;
-                    document.body.appendChild(tempInput);
-                    tempInput.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(tempInput);
-                    showMessage('ID copiado para a área de transferência!', 'info');
-                }
-            });
+<!-- Script de cópia de ID -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const psychologistIdElement = document.getElementById('psychologist-id');
+    if (!psychologistIdElement) return;
+    psychologistIdElement.addEventListener('click', () => {
+        const idToCopy = psychologistIdElement.textContent;
+        if (idToCopy && idToCopy !== 'Carregando...' && idToCopy !== 'Não autenticado.') {
+            const tempInput = document.createElement('textarea');
+            tempInput.value = idToCopy;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            // showMessage é definido dentro do module script, então chamamos via window se necessário.
+            if (typeof window.showMessage === 'function') window.showMessage('ID copiado para a área de transferência!', 'info');
+            else {
+                // fallback simples:
+                const box = document.getElementById('notification-box');
+                box.textContent = 'ID copiado para a área de transferência!';
+                box.className = 'absolute top-4 right-4 p-3 rounded-lg text-sm bg-indigo-500 text-white z-50';
+                box.classList.remove('hidden');
+                setTimeout(() => box.classList.add('hidden'), 3000);
+            }
         }
     });
+});
 </script>
 
 </body>
