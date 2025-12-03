@@ -14,11 +14,13 @@
     <div id="app"></div>
 
     <script>
-        // CLIENTE SUPABASE (Mantido)
+        // CLIENTE SUPABASE (CREDENCIAIS ATUALIZADAS AQUI)
         const { createClient } = window.supabase;
         const supabaseClient = createClient(
-            'https://jhcylgeukoiomydgppxc.supabase.co',
-            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoY3lsZ2V1a29pb215ZGdwcHhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MDk3MzUsImV4cCI6MjA3OTE4NTczNX0.OGBU7RK2lwSZaS1xvxyngV8tgoi3M7o0kv_xCX0Ku5A'
+            // NOVO URL DO PROJETO (https://aznartvmtqvqnjslvrnf.supabase.co)
+            'https://aznartvmtqvqnjslvrnf.supabase.co', 
+            // NOVA CHAVE ANON PÚBLICA
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF6bmFydHZtdHF2cW5zamx2cm5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwMTcyMjMsImV4cCI6MjA3OTU5MzIyM30.tEFpTPpnhuLwNiwfXXb_uy8BnCd_ifHJ2bZfjNyw3Ao'
         );
 
         // ESTADO GLOBAL (Mantido)
@@ -211,7 +213,7 @@
             render();
         }
 
-        // FUNÇÕES DE AUTENTICAÇÃO (Adicionei o corpo delas, que estava faltando)
+        // FUNÇÕES DE AUTENTICAÇÃO
         async function handleLogin() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
