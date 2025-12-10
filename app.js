@@ -1,274 +1,300 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { Settings, User, Briefcase, Loader2, Home, Users, PlusCircle, Copy, AlertTriangle, CheckCircle, Link } from 'lucide-react';
-import { firebaseConfig } from './firebaseConfig'; // Crie este arquivo conforme explicado
+// app.js - Supabase version (plain JS, no React)
+// Requires: index.html includes supabase-js UMD and sets SUPABASE_URL and SUPABASE_ANON_KEY on window
 
-// Inicializa Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+const SUPABASE_URL = window.SUPABASE_URL;
+const SUPABASE_KEY = window.SUPABASE_ANON_KEY;
 
-// Helpers
-const getProfileDocRef = (userId) => doc(db, 'users', userId);
-const getConnectionsCollectionRef = () => collection(db, 'connections');
+const supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_KEY); // supabaseJs is provided by UMD build
 
-// App Principal
-const App = () => {
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+// DOM elements
+const authScreen = document.getElementById('auth-screen');
+const appScreen = document.getElementById('app-screen');
+const authMsg = document.getElementById('auth-msg');
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const btnSignUp = document.getElementById('btn-signup');
+const btnSignIn = document.getElementById('btn-signin');
+const btnLogout = document.getElementById('btn-logout');
+const userEmailLabel = document.getElementById('user-email');
 
-  const [profile, setProfile] = useState(null);
-  const [role, setRole] = useState('');
-  const [name, setName] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+const profileSection = document.getElementById('profile-section');
+const dashboardSection = document.getElementById('dashboard-section');
 
-  const [view, setView] = useState('profile');
-  const [notification, setNotification] = useState({ message: '', type: 'info' });
+let currentUser = null;
+let profile = null;
 
-  // Toast
-  const showMessage = (msg, type = 'info') => {
-    setNotification({ message: msg, type });
-    setTimeout(() => setNotification({ message: '', type: 'info' }), 5000);
-  };
+// UTIL
+function showAuthMessage(msg) {
+  authMsg.style.display = msg ? 'block' : 'none';
+  authMsg.innerText = msg || '';
+}
 
-  // Carrega perfil
-  const loadUserProfile = useCallback(async (userId) => {
-    if (!userId) return;
-    try {
-      const docRef = getProfileDocRef(userId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setProfile(data);
-        setRole(data.role || '');
-        setName(data.name || '');
-        setView(data.role === 'psicologo' ? 'dashboard' : 'patient_app');
-      } else {
-        setProfile(null);
-        setView('profile');
-      }
-    } catch (e) {
-      console.error("Erro ao carregar perfil:", e);
-      showMessage("Erro ao carregar perfil.", 'error');
-      setView('profile');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+function safeText(t, fallback='N/A') { return (t===null||t===undefined||t==='')?fallback:String(t); }
 
-  // Autenticação
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setCurrentUserId(user.uid);
-        setIsAuthReady(true);
-        loadUserProfile(user.uid);
-      } else {
-        signInAnonymously(auth).catch((e) => {
-          console.error("Falha na autenticação:", e);
-          setError("Falha na autenticação.");
-          setIsLoading(false);
-        });
-      }
-    });
-    return () => unsubscribe();
-  }, [loadUserProfile]);
+// AUTH
+btnSignUp.addEventListener('click', async () => {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+  if (!email || !password) return showAuthMessage('Preencha email e senha.');
 
-  // Salvar perfil
-  const saveUserProfile = async (e) => {
-    e.preventDefault();
-    if (!currentUserId || !name.trim() || !role) {
-      showMessage("Preencha o nome e selecione um papel.", 'error');
-      return;
-    }
-    setIsSaving(true);
-    try {
-      const docRef = getProfileDocRef(currentUserId);
-      await setDoc(docRef, {
-        userId: currentUserId,
-        name: name.trim(),
-        role,
-        createdAt: profile?.createdAt || serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      setProfile({ userId: currentUserId, name: name.trim(), role });
-      showMessage("Perfil salvo com sucesso!", "success");
-      setView(role === 'psicologo' ? 'dashboard' : 'patient_app');
-    } catch (e) {
-      console.error(e);
-      showMessage("Erro ao salvar perfil.", "error");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  showAuthMessage('Aguarde...');
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) {
+    showAuthMessage(error.message || 'Erro ao criar conta.');
+    return;
+  }
+  showAuthMessage('Conta criada. Verifique seu e-mail para confirmação (se habilitado). Faça login.');
+});
 
-  // --- Componentes de Tela ---
+btnSignIn.addEventListener('click', async () => {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+  if (!email || !password) return showAuthMessage('Preencha email e senha.');
 
-  const ProfileRegistrationForm = () => (
-    <div className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-indigo-600">
-      <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Bem-vindo(a)!</h2>
-      <p className="text-gray-500 mb-6">Complete seu perfil para continuar.</p>
+  showAuthMessage('Autenticando...');
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    showAuthMessage(error.message || 'Erro ao fazer login.');
+    return;
+  }
+  showAuthMessage('');
+  // onAuthStateChange will handle UI
+});
 
-      <form onSubmit={saveUserProfile}>
-        <input
-          type="text"
-          placeholder="Nome"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full p-3 mb-4 border rounded"
-          required
-        />
-        <div className="flex space-x-4 mb-4">
-          <button
-            type="button"
-            onClick={() => setRole('psicologo')}
-            className={`flex-1 p-3 rounded ${role === 'psicologo' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}
-          >
-            Psicólogo(a)
-          </button>
-          <button
-            type="button"
-            onClick={() => setRole('paciente')}
-            className={`flex-1 p-3 rounded ${role === 'paciente' ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}
-          >
-            Paciente
-          </button>
+btnLogout.addEventListener('click', async () => {
+  await supabase.auth.signOut();
+  location.reload();
+});
+
+// Auth state observer
+supabase.auth.onAuthStateChange((event, session) => {
+  if (session && session.user) {
+    currentUser = session.user;
+    userEmailLabel.innerText = currentUser.email || currentUser.id;
+    showApp();
+    loadProfile(currentUser.id);
+  } else {
+    currentUser = null;
+    showAuth();
+  }
+});
+
+// UI toggles
+function showAuth() {
+  authScreen.classList.remove('hidden');
+  appScreen.classList.add('hidden');
+}
+
+function showApp() {
+  authScreen.classList.add('hidden');
+  appScreen.classList.remove('hidden');
+}
+
+// PROFILE CRUD (uses public.profiles table)
+async function loadProfile(userId) {
+  // profiles table should have: id (uuid = auth.user.id), name, role
+  profileSection.innerHTML = `<div class="card form-card">Carregando perfil...</div>`;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') { /* PGRST116 = no rows? */ }
+  profile = data || null;
+  renderProfileArea();
+}
+
+function renderProfileArea() {
+  if (!profile) {
+    // registration form
+    profileSection.innerHTML = `
+      <div class="card form-card">
+        <div class="h3">Bem-vindo(a)!</div>
+        <p class="muted">Complete seu perfil para continuar.</p>
+        <input id="name" class="input" placeholder="Nome" />
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <button id="role-psicologo" class="btn" style="flex:1; background:#e6e7ff; color:#111;">Psicólogo(a)</button>
+          <button id="role-paciente" class="btn" style="flex:1; background:#e6e7ff; color:#111;">Paciente</button>
         </div>
-        <button type="submit" className="w-full p-3 bg-indigo-600 text-white rounded" disabled={isSaving}>
-          {isSaving ? "Salvando..." : "Salvar e Continuar"}
-        </button>
-      </form>
-    </div>
-  );
+        <button id="save-profile" class="btn">Salvar e Continuar</button>
+        <p id="profile-msg" class="muted" style="margin-top:8px;"></p>
+      </div>
+    `;
 
-  const ProfileView = () => (
-    <div className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-green-600">
-      <h2 className="text-3xl font-extrabold text-gray-900 mb-4">Perfil Registrado</h2>
-      <p>{profile?.name} ({profile?.role})</p>
-      <button onClick={() => setView(profile.role === 'psicologo' ? 'dashboard' : 'patient_app')} className="mt-4 p-3 bg-indigo-600 text-white rounded">
-        Acessar Aplicativo
-      </button>
-    </div>
-  );
-
-  const PatientApp = () => (
-    <div className="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-2xl text-center">
-      <h2 className="text-3xl font-bold mb-4">Aplicativo do Paciente</h2>
-      <p>Olá {profile?.name}, aqui você verá suas tarefas e progresso.</p>
-      <button onClick={() => setView('profile')} className="mt-4 p-2 border rounded">
-        Voltar para Perfil
-      </button>
-    </div>
-  );
-
-  const PsicologoDashboard = () => {
-    const [patientIdInput, setPatientIdInput] = useState('');
-    const [patients, setPatients] = useState([]);
-    const [isConnecting, setIsConnecting] = useState(false);
-
-    const trimmedId = patientIdInput.trim();
-    const isValidId = trimmedId.length === 36 && trimmedId.includes('-');
-
-    useEffect(() => {
-      if (!currentUserId) return;
-      const connectionsRef = getConnectionsCollectionRef();
-      const q = query(connectionsRef, where("psicologoId", "==", currentUserId));
-      const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-        const connectedPatientIds = querySnapshot.docs.map(doc => ({ id: doc.id, pacienteId: doc.data().pacienteId }));
-        const patientProfiles = await Promise.all(
-          connectedPatientIds.map(async (conn) => {
-            const snap = await getDoc(getProfileDocRef(conn.pacienteId));
-            return snap.exists() ? { ...conn, ...snap.data() } : null;
-          })
-        );
-        setPatients(patientProfiles.filter(p => p));
-      });
-      return () => unsubscribe();
-    }, [currentUserId]);
-
-    const handleConnectPatient = async (e) => {
-      e.preventDefault();
-      if (!isValidId || trimmedId === currentUserId) {
-        showMessage("ID inválido.", "error");
-        return;
-      }
-      setIsConnecting(true);
-      try {
-        const snap = await getDoc(getProfileDocRef(trimmedId));
-        if (!snap.exists() || snap.data().role !== 'paciente') {
-          showMessage("Paciente não encontrado.", "error");
-          return;
-        }
-        const connectionRef = doc(getConnectionsCollectionRef(), `${currentUserId}_${trimmedId}`);
-        await setDoc(connectionRef, {
-          psicologoId: currentUserId,
-          pacienteId: trimmedId,
-          createdAt: serverTimestamp(),
-          pacienteName: snap.data().name
-        }, { merge: true });
-        showMessage("Paciente conectado com sucesso!", "success");
-        setPatientIdInput('');
-      } catch (e) {
-        console.error(e);
-        showMessage("Erro ao conectar paciente.", "error");
-      } finally {
-        setIsConnecting(false);
-      }
-    };
-
-    return (
-      <div className="w-full min-h-screen bg-white p-8 rounded-2xl shadow-2xl max-w-6xl mx-auto">
-        <h2 className="text-3xl font-bold mb-4">Dashboard {profile?.name}</h2>
-
-        <form onSubmit={handleConnectPatient} className="mb-6">
-          <input
-            type="text"
-            placeholder="ID do paciente"
-            value={patientIdInput}
-            onChange={(e) => setPatientIdInput(e.target.value)}
-            className="p-3 border rounded w-full mb-2"
-          />
-          <button type="submit" disabled={!isValidId || isConnecting} className="p-3 bg-indigo-600 text-white rounded">
-            {isConnecting ? "Conectando..." : "Conectar Paciente"}
-          </button>
-        </form>
-
-        <div>
-          <h3 className="font-bold mb-2">Pacientes Conectados ({patients.length})</h3>
-          {patients.map(p => (
-            <div key={p.id} className="p-2 border rounded mb-1 flex justify-between">
-              <span>{p.name}</span>
-              <code>{p.pacienteId}</code>
-            </div>
-          ))}
+    document.getElementById('role-psicologo').addEventListener('click', () => { selectRole('psicologo'); });
+    document.getElementById('role-paciente').addEventListener('click', () => { selectRole('paciente'); });
+    document.getElementById('save-profile').addEventListener('click', saveProfile);
+    window.__selectedRole = '';
+    function selectRole(r) {
+      window.__selectedRole = r;
+      document.getElementById('profile-msg').innerText = `Papel selecionado: ${r}`;
+    }
+  } else {
+    profileSection.innerHTML = `
+      <div class="card form-card">
+        <div class="h3">Perfil</div>
+        <p><strong>${safeText(profile.name,'-')}</strong></p>
+        <p class="muted">Papel: ${safeText(profile.role,'-')}</p>
+        <div style="margin-top:10px">
+          <button id="open-app" class="btn">Acessar Aplicativo</button>
         </div>
       </div>
-    );
-  };
+    `;
+    document.getElementById('open-app').addEventListener('click', () => {
+      renderDashboardArea();
+    });
+  }
+}
 
-  // --- Renderização ---
-  let content;
-  if (error) content = <div>{error}</div>;
-  else if (isLoading || !isAuthReady) content = <Loader2 className="animate-spin w-10 h-10 mx-auto" />;
-  else if (!profile) content = <ProfileRegistrationForm />;
-  else if (view === 'profile') content = <ProfileView />;
-  else if (view === 'patient_app') content = <PatientApp />;
-  else if (view === 'dashboard') content = <PsicologoDashboard />;
+// Save profile
+async function saveProfile() {
+  const name = document.getElementById('name')?.value?.trim();
+  const role = window.__selectedRole;
+  const msgEl = document.getElementById('profile-msg');
+  if (!name || !role) { msgEl.innerText = 'Preencha nome e selecione papel.'; return; }
+  msgEl.innerText = 'Salvando...';
 
-  return (
-    <div className="min-h-screen bg-gray-100 p-4 flex items-center justify-center relative">
-      {notification.message && (
-        <div className={`absolute top-4 right-4 p-3 rounded-lg text-white ${notification.type === 'error' ? 'bg-red-500' : notification.type === 'success' ? 'bg-green-500' : 'bg-indigo-500'}`}>
-          {notification.message}
+  const payload = { id: currentUser.id, name, role, created_at: new Date().toISOString() };
+  const { error } = await supabase.from('profiles').upsert(payload, { returning: 'representation' });
+  if (error) { msgEl.innerText = error.message || 'Erro ao salvar perfil.'; return; }
+  msgEl.innerText = 'Perfil salvo!';
+  // reload profile
+  await loadProfile(currentUser.id);
+}
+
+// DASHBOARD AREA
+async function renderDashboardArea() {
+  dashboardSection.classList.remove('hidden');
+
+  if (!profile) {
+    dashboardSection.innerHTML = `<div class="card">Perfil não encontrado.</div>`;
+    return;
+  }
+
+  if (profile.role === 'paciente') {
+    // Simple patient app view
+    dashboardSection.innerHTML = `
+      <div>
+        <div class="h3">Aplicativo do Paciente</div>
+        <div class="card">
+          <p>Olá <strong>${safeText(profile.name)}</strong>. Aqui você verá suas tarefas (coming soon).</p>
+          <button id="btn-back-to-profile" class="btn" style="margin-top:10px; background:#111;">Voltar</button>
         </div>
-      )}
-      {content}
-    </div>
-  );
-};
+      </div>
+    `;
+    document.getElementById('btn-back-to-profile').addEventListener('click', () => { dashboardSection.classList.add('hidden'); });
+    return;
+  }
 
-export default App;
+  // Psicólogo dashboard
+  dashboardSection.innerHTML = `
+    <div>
+      <div class="h3">Dashboard do Psicólogo — ${safeText(profile.name)}</div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <form id="connect-form">
+          <label class="muted">Conectar paciente pelo ID (UUID do perfil)</label>
+          <input id="connect-id" class="input" placeholder="ID do paciente (ex: uuid)" />
+          <div style="display:flex; gap:8px;">
+            <button id="btn-connect" class="btn" type="submit">Conectar Paciente</button>
+            <button id="btn-refresh" class="btn" type="button" style="background:#111;">Atualizar</button>
+          </div>
+          <p id="connect-msg" class="muted"></p>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="h3">Pacientes Conectados</div>
+        <div id="patients-list" class="patients-list">Carregando...</div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('connect-form').addEventListener('submit', handleConnectPatient);
+  document.getElementById('btn-refresh').addEventListener('click', loadConnectedPatients);
+
+  // initial load
+  loadConnectedPatients();
+}
+
+// Create connection row in public.connections
+async function handleConnectPatient(e) {
+  e.preventDefault();
+  const input = document.getElementById('connect-id');
+  const id = (input.value || '').trim();
+  const msg = document.getElementById('connect-msg');
+  msg.innerText = '';
+
+  if (!id) { msg.innerText = 'Informe ID do paciente.'; return; }
+  if (id === profile.id) { msg.innerText = 'Não é possível conectar consigo mesmo.'; return; }
+
+  // check if patient exists and role == 'paciente'
+  const { data: patientProfile, error: pError } = await supabase.from('profiles').select('*').eq('id', id).single();
+  if (pError || !patientProfile) { msg.innerText = 'Paciente não encontrado.'; return; }
+  if (patientProfile.role !== 'paciente') { msg.innerText = 'Este usuário não é um paciente.'; return; }
+
+  // upsert connection (psicologo_id, paciente_id)
+  const { error } = await supabase.from('connections').upsert({
+    psicologo_id: profile.id,
+    paciente_id: id,
+    paciente_name: patientProfile.name,
+    created_at: new Date().toISOString()
+  }, { onConflict: ['psicologo_id', 'paciente_id'] });
+
+  if (error) { msg.innerText = error.message || 'Erro ao conectar paciente.'; return; }
+  msg.innerText = 'Paciente conectado!';
+  input.value = '';
+  loadConnectedPatients();
+}
+
+// Load connected patients for the logged-in psychologist
+async function loadConnectedPatients() {
+  const listEl = document.getElementById('patients-list');
+  listEl.innerHTML = 'Carregando...';
+  // Query connections table
+  const { data, error } = await supabase
+    .from('connections')
+    .select('*')
+    .eq('psicologo_id', profile.id)
+    .order('created_at', { ascending: false });
+
+  if (error) { listEl.innerHTML = `<div class="error">Erro: ${error.message}</div>`; return; }
+  if (!data || !data.length) { listEl.innerHTML = '<div class="muted">Nenhum paciente conectado.</div>'; return; }
+
+  listEl.innerHTML = data.map(c => `
+    <div class="patient-item">
+      <div>
+        <div style="font-weight:700">${safeText(c.paciente_name,'-')}</div>
+        <div class="muted" style="font-size:13px">${safeText(c.paciente_id)}</div>
+      </div>
+      <div>
+        <button class="btn" data-pid="${c.paciente_id}" style="background:#111;">Abrir</button>
+      </div>
+    </div>
+  `).join('');
+
+  // attach click handlers for "Abrir" buttons
+  listEl.querySelectorAll('button[data-pid]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const pid = ev.currentTarget.dataset.pid;
+      // open patient profile (simple modal or replace dashboard)
+      const { data: p } = await supabase.from('profiles').select('*').eq('id', pid).single();
+      alert(`Paciente: ${p.name}\nID: ${p.id}\nPapel: ${p.role}`);
+    });
+  });
+}
+
+// INIT - check session
+(async function init() {
+  // If already logged in, supabase.onAuthStateChange will handle
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session && session.user) {
+    currentUser = session.user;
+    userEmailLabel.innerText = currentUser.email || currentUser.id;
+    showApp();
+    await loadProfile(currentUser.id);
+  } else {
+    showAuth();
+  }
+})();
